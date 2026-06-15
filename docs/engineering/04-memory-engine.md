@@ -65,7 +65,7 @@ class MemoryEntry:
     kind: MemoryKind
     content: str                # Natural-language text, injected verbatim into prompts
     episode_index: int          # Episode during which this memory was written
-    importance: float = 1.0     # [0.0, 1.0]; used in retrieval scoring
+    importance: float = 1.0     # [0.0, 1.0]; used in retrieval scoring and compaction protection
     last_accessed_episode: int = 0
     access_count: int = 0
     created_at: datetime = field(
@@ -156,12 +156,16 @@ class MemoryStore(Protocol):
 The production implementation backed by the persistence layer (see
 `07-persistence` for the full DDL). Delegates all SQL to the `PersistenceLayer`
 passed at construction — no direct sqlite3 calls inside `SqliteMemoryStore`.
+`SqliteMemoryStore` implements `MemoryStore` via duck typing (no explicit
+`Protocol` subclassing required by Python's structural typing); `PersistenceLayer`
+owns the DDL for the `memory_entries` table.
 
 ### InMemoryStore
 
 Used in unit tests. Stores entries in a plain list; retrieval uses the same
-scoring function as `SqliteMemoryStore` (extracted to a shared module so both
-implementations are tested against the same logic).
+scoring function as `SqliteMemoryStore` (extracted to a shared
+`_score_entry()` module so both implementations are tested against identical
+logic). No SQL dependency.
 
 ---
 
@@ -205,9 +209,22 @@ score(entry) = α × relevance(entry.content, query)
 
 Default weights: `α=0.5, β=0.25, γ=0.15, δ=0.10`.
 
+**Basis for weights:** There is no single authoritative source; these are
+empirical heuristics calibrated against the goal of surfacing *relevant and
+timely* memories. The dominant term (α=0.5) reflects the standard IR finding
+that query-term relevance is the primary signal for recall tasks (c.f. BM25's
+design philosophy). Recency (β=0.25) models the recency effect in episodic
+memory: recent events are more likely to influence current behaviour than distant
+ones. Importance (γ=0.15) is a supplementary author-set signal. Access frequency
+(δ=0.10) captures a reuse effect — memories retrieved before are more likely to
+be relevant again. The weights are normalised to sum to 1.0 and are all exposed
+as configuration so scenario designers can tune them. They should be validated
+empirically during integration testing against representative scenarios.
+
 **Relevance** is keyword/bigram overlap (no embedding model required by
 default). An optional `EmbeddingRelevance` backend swaps in cosine similarity
-via a pluggable embedding function.
+via a pluggable embedding function (see Capacity Planning section for when this
+is needed).
 
 **Recency** decays linearly over a configurable `recency_window_episodes`
 (default: 50). An entry at the current episode scores 1.0; one 50+ episodes old
@@ -219,10 +236,83 @@ characters, not tokens — see `05-simulation-engine`).
 
 ---
 
+## Capacity Planning
+
+Before fixing the default thresholds, we analyse a demanding scenario to verify
+the design is tractable: **50 people, 50 simulated years, 1 episode per
+simulated day** (18,250 episodes total).
+
+### Raw entry growth (no compaction)
+
+| Metric | Calculation | Value |
+|--------|-------------|-------|
+| Episodes | 50 yr × 365 days | 18,250 |
+| Raw episodic entries per person | 1 per episode | 18,250 |
+| Avg content length | ~200 chars/entry | — |
+| Raw text per person | 18,250 × 200 | 3.65 MB |
+| Total raw text (50 people) | 3.65 MB × 50 | 182 MB |
+| SQLite row overhead (~4×) | 182 MB × 4 | ~730 MB |
+
+730 MB for 50 people over 50 years is feasible but gets uncomfortable without
+compaction, and retrieval over 18,250 rows per person per query would be slow.
+
+### With compaction (threshold=200, batch=50)
+
+Compaction runs when a party's entry count exceeds 200. Each compaction takes
+the 50 lowest-importance EPISODIC entries oldest-first (see Algorithm below)
+and replaces them with 1 COMPACTED entry — a net reduction of 49 entries per
+run.
+
+After N episodes, the steady-state entry count per party approaches:
+```
+peak count ≈ 200 + 50 = 250 entries (compaction fires, then 49 entries removed)
+```
+In the steady state the party oscillates between ~200 and ~250 entries.
+
+After 18,250 episodes:
+```
+compaction runs ≈ (18,250 - 200) / 50 ≈ 361 per person
+raw entries remaining ≈ 18,250 - (361 × 49) ≈ 560 episodic entries
+compacted entries ≈ 361
+total entries per person ≈ 560 + 361 ≈ 920
+```
+
+| Metric | Value |
+|--------|-------|
+| Entries per person (steady state) | ~920 |
+| Text per person (560×200 + 361×500 chars) | ~293 KB |
+| Total text, 50 people | ~14.6 MB |
+| SQLite total (with overhead) | ~50–60 MB |
+
+**Retrieval speed:** with an index on `(party_id, episode_index)` and
+`importance`, scoring 920 rows in Python takes < 1 ms. Even at 50 parties
+retrieving concurrently, total retrieval overhead per episode is well under
+100 ms.
+
+**Conclusion:** The default thresholds (compaction at 200 entries or 80 000
+chars, batch of 50) are appropriate for this scale. For scenarios with faster
+episode rates or more parties, the thresholds can be lowered; for lighter
+scenarios, raised.
+
+### Embedding retrieval
+
+Keyword overlap retrieval on ~920 entries per party requires no external
+service and scales easily to 50 parties. Embedding retrieval (cosine
+similarity via an external API) is warranted only when:
+- Entry count per party reliably exceeds ~2 000 (compaction keeps it well below
+  this at default settings), **or**
+- Topics are highly diverse and keyword overlap produces poor recall (testable
+  empirically with a scenario-specific benchmark).
+
+At default settings for this reference scenario, keyword retrieval is
+sufficient. The embedding backend is an opt-in for power users.
+
+---
+
 ## Compaction
 
 Compaction reduces the number of stored entries for a party by summarising a
-batch of older entries into a single `COMPACTED` entry.
+batch of lower-priority entries into a single `COMPACTED` entry.
 
 ### Trigger
 
@@ -234,9 +324,20 @@ party:
 
 ### Algorithm
 
-1. Fetch all `EPISODIC` entries for the party, sorted oldest-first.
-2. Take the oldest `compaction_batch_size` entries (default: 50).
-3. Call the LLM provider with a prompt:
+High-importance entries carry durable facts or character-defining knowledge
+and must not be silently lost to compaction. The algorithm therefore separates
+*protected* entries from *compactable* ones before selecting the batch:
+
+1. Fetch all `EPISODIC` entries for the party.
+2. Split into:
+   - **Protected**: `importance ≥ compaction_importance_floor` (default: 0.7).
+     These are never included in a compaction batch.
+   - **Compactable**: `importance < compaction_importance_floor`.
+3. Sort compactable entries oldest-first.
+4. Take the oldest `compaction_batch_size` (default: 50). If fewer than 10
+   compactable entries exist, skip this compaction cycle (not worth the LLM
+   call).
+5. Call the LLM provider with a prompt:
    ```
    Summarise the following memories for {party_name} into a concise paragraph
    (max 500 characters). Preserve facts, relationships, and events that will
@@ -245,21 +346,35 @@ party:
    Memories:
    {entry.content for entry in batch}
    ```
-4. Create one `COMPACTED` entry with the LLM's response as `content` and
-   `source_entry_ids` pointing to all batch entries.
-5. `write_many([compacted_entry])` then `delete_many(batch entry ids)`.
+6. Create one `COMPACTED` entry with the LLM's response as `content`,
+   `importance` set to the **maximum** importance of the source batch (so the
+   compacted summary is ranked at least as highly as the most important source),
+   and `source_entry_ids` pointing to all batch entries.
+7. In a single DB transaction: `write_many([compacted_entry])` then
+   `delete_many(batch entry ids)`.
+
+### Importance and compaction interaction
+
+Protected entries (importance ≥ 0.7) accumulate separately and are never
+compacted. If a scenario produces many high-importance entries without
+compaction relief, the engine logs a warning when protected entry count exceeds
+`compaction_threshold / 2` (default: 100). The scenario designer should either
+lower the importance floor or be more selective about what gets high importance
+scores.
 
 ### Idempotency
 
-If compaction fails mid-flight (LLM error), the source entries are not deleted.
-The next compaction cycle will retry. The compacted entry is only written after
-all source entries are successfully deleted within a transaction.
+If compaction fails mid-flight (LLM error), the DB transaction is rolled back:
+source entries are not deleted and no compacted entry is written. The next
+compaction cycle will retry with the same batch. "Transaction" here refers to a
+SQLite database transaction — both the insert and the deletes are inside a
+single `BEGIN … COMMIT` block.
 
 ### COMPACTED entries
 
 `COMPACTED` entries are never re-compacted into a second level. If entry count
-stays high after compaction, the engine compacts again — but always from the
-remaining raw `EPISODIC` entries. This avoids lossy multi-level compression.
+stays high after compaction, the engine compacts again from the remaining raw
+`EPISODIC` entries. This avoids multi-level lossy compression.
 
 ---
 
@@ -292,51 +407,73 @@ they know a secret.
 
 ---
 
+## Cross-Party Memory
+
+### Preferred mechanism: give Bob a turn
+
+The cleanest way to record that Bob overheard Alice is to give Bob a turn in
+the same episode — even a brief one — where the engine can provide Alice's
+output as context. Bob's own LLM response then generates the episodic memory
+naturally.
+
+This is always feasible when:
+- Both parties are in the same location (visible_to rules permit it), and
+- The scenario calls for Bob to be an active participant in the episode.
+
+### When cross-party injection is appropriate
+
+Cross-party memory write (engine writes an entry to a party that had no turn)
+is reserved for **passive observation**: Bob was physically present but the
+episode is structured such that only Alice had a turn (e.g., Alice addressed
+the room and the engine loops through all present parties writing a
+"you-overheard" memory without giving each a turn). This is an optimisation for
+large group scenes where giving every bystander a full LLM turn is prohibitively
+expensive.
+
+The engine policy for deciding when to use passive injection vs. active turns
+is defined in `05-simulation-engine`. The memory engine's write API is
+agnostic — it accepts writes for any party at any time.
+
+---
+
 ## Design Decisions & Rationale
 
 1. **Retrieval is keyword-overlap by default, not embeddings.**
-   Embedding models add an external dependency (an embedding API or local model)
-   and latency. Keyword overlap is fast, deterministic, and sufficient for most
-   scenarios. An `EmbeddingRelevance` backend is provided as an opt-in for
-   scenarios where semantic search matters. This keeps the default setup
-   dependency-free beyond the LLM provider.
+   At the reference scale (50 parties, 50 years), keyword overlap is fast,
+   deterministic, and sufficient (see Capacity Planning). An `EmbeddingRelevance`
+   backend is provided as an opt-in for scenarios where semantic search matters.
 
-2. **Compaction batch is oldest-first, not lowest-importance-first.**
-   Importance is an approximation; the author (engine) may have mis-scored
-   entries. Oldest-first is a safe default because recent memories are more
-   likely to be referenced in upcoming turns. Importance is used in retrieval
-   ranking, not compaction selection.
+2. **Compaction selects by lowest importance then oldest-first.**
+   Importance is the primary guard: high-importance entries are protected
+   entirely. Within the compactable pool, oldest-first is the tiebreaker —
+   recent memories are more likely to be referenced in upcoming turns.
 
-3. **`COMPACTED` entries are never re-compacted.**
+3. **`COMPACTED` entries inherit the maximum importance of their source batch.**
+   A compacted summary is at least as important as the most significant thing
+   it records. Using `max(source importance)` prevents a summary that contains
+   an important fact from being ranked below newer trivial entries.
+
+4. **`COMPACTED` entries are never re-compacted.**
    Multi-level compaction compounds information loss. Once a batch is summarised
-   once, the summary is treated as a terminal form. If memory pressure remains
-   high, the engine compacts more raw entries, not the summaries.
+   once, the summary is treated as a terminal form.
 
-4. **Memory is per-party, not shared.**
+5. **Memory is per-party, not shared.**
    Parties have asymmetric information. Alice may remember something Bob does
-   not. A shared global memory store would collapse this distinction. The engine
-   can write the same observation as separate entries to multiple parties with
-   different `importance` scores (e.g., an event is highly important to Alice,
-   mildly noted by Bob).
+   not. A shared global memory store would collapse this distinction.
 
-5. **`total_content_length` uses character count, not tokens.**
+6. **`total_content_length` uses character count, not tokens.**
    Token counts are provider-specific. Character count is a reliable proxy and
-   cheap to compute in SQL (`SUM(LENGTH(content))`). The engine uses characters
-   to decide compaction triggers and prompt budget trimming; actual token limits
-   are enforced by the provider at call time.
+   cheap to compute in SQL (`SUM(LENGTH(content))`).
 
-6. **Soft delete (forgetting) vs. hard delete.**
+7. **Soft delete (forgetting) vs. hard delete.**
    Hard deletion loses the audit trail. Soft deletion lets the inspection CLI
-   show what a party has forgotten and why — useful for debugging surprising
-   agent behaviour. Hard delete is available for GDPR-style erasure and explicit
-   scenario control.
+   show what a party has forgotten and why. Hard delete is available for
+   GDPR-style erasure and explicit scenario control.
 
-7. **`memory_write_mode = "template"` is the default.**
-   LLM-based memory writing doubles the number of LLM calls per episode (one
-   for each party's memory write). That cost is significant for long simulations.
-   The template mode produces slightly lower-quality summaries but keeps costs
-   predictable. Scenario designers can opt in to `"llm"` mode when fidelity
-   matters more than cost.
+8. **`memory_write_mode = "template"` is the default.**
+   LLM-based memory writing doubles the number of LLM calls per episode.
+   Template mode keeps costs predictable. Scenario designers can opt in to
+   `"llm"` mode when fidelity matters more than cost.
 
 ---
 
@@ -346,9 +483,10 @@ they know a secret.
 |-----------|-----------|
 | `write()` storage failure | `RuntimeError` propagates to engine; episode turn still saved |
 | `retrieve()` storage failure | `RuntimeError` propagates; engine may proceed with empty memories (configurable: `memory_retrieve_fail_mode = "raise" | "empty"`) |
-| Compaction LLM call fails | Source entries are not deleted; compaction is skipped for this cycle; engine logs a warning |
+| Compaction LLM call fails | DB transaction rolled back; source entries untouched; engine logs a warning; retry next cycle |
 | Compaction LLM returns empty/too-long summary | Engine truncates at `compaction_max_chars` (default: 500) or retries once with a stricter prompt |
 | `delete()` of non-existent entry_id | No-op (idempotent) |
+| Protected entry count exceeds `compaction_threshold / 2` | Warning logged; no exception; designer should review importance assignments |
 
 ---
 
@@ -362,8 +500,11 @@ they know a secret.
 - `InMemoryStore.retrieve` with `max_entries` smaller than total count
 - `InMemoryStore.entry_count` and `total_content_length`
 - Compaction trigger: threshold not reached → no compaction; threshold reached → compaction called
+- Compaction importance split: entries with importance ≥ 0.7 excluded from batch; entries below floor selected oldest-first
+- Compaction batch: compacted entry importance = max of source batch
 - Compaction algorithm: source entries deleted, compacted entry present, `source_entry_ids` correct
 - Compaction idempotency: if LLM call fails, source entries remain, no compacted entry written
+- Compaction skip: fewer than 10 compactable entries → no LLM call
 - Forgetting decay: entry below importance threshold + idle episodes → soft-deleted; entry above threshold → retained
 - Explicit delete: entry absent from subsequent `list_all`
 
@@ -380,6 +521,7 @@ they know a secret.
 - `write_many` with an empty list
 - Compaction batch smaller than `compaction_batch_size`
 - Two parties with the same episode index — retrieval isolation (Alice can't see Bob's memories)
+- All EPISODIC entries are protected (importance ≥ floor) — compaction skipped
 
 **Coverage target:** ≥ 90% for `core/memory` (scoring logic, MemoryEntry, compaction algorithm); ≥ 80% for `SqliteMemoryStore` on key paths.
 
@@ -387,11 +529,17 @@ they know a secret.
 
 ## Open Questions
 
-1. **Embedding retrieval backend**: when should this be recommended over keyword
-   overlap? The answer depends on the scenario length and topic diversity.
-   Defer to implementation; add a config flag and document the trade-off.
+1. **Embedding retrieval backend**: keyword overlap is sufficient at default
+   scale (< 1 000 entries per party; < 50 parties). Embedding retrieval becomes
+   useful when either (a) entry count per party reliably exceeds ~2 000, or (b)
+   scenario topics are highly diverse (testable via a per-scenario recall
+   benchmark). The `EmbeddingRelevance` backend is a config opt-in; the
+   threshold for recommending it will be documented after integration testing
+   reveals real recall failure modes.
 
-2. **Cross-party memory injection**: can the engine write a memory to a party
-   that wasn't active in the turn (e.g., "Bob overhead Alice say X even though
-   Bob didn't have a turn")? The write API supports this — but the engine policy
-   for when to do so is defined in `05-simulation-engine`.
+2. **Cross-party passive injection vs. active turns**: the preferred mechanism
+   is an active turn. Passive injection is reserved for large group scenes where
+   giving every bystander a turn is too expensive. The engine policy (when to
+   inject vs. when to schedule a turn) is defined in `05-simulation-engine`.
+   This is not a design gap in the memory engine — the write API is
+   intentionally agnostic.
