@@ -8,8 +8,9 @@ discriminator tells the engine how to handle each one.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, replace as dc_replace
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from dataclasses import replace as dc_replace
+from datetime import UTC, datetime
 from enum import Enum
 from typing import NamedTuple
 
@@ -99,9 +100,7 @@ class Party:
     persona: Persona
     state: dict[str, StateValue] = field(default_factory=dict)
     state_history: list[StateChange] = field(default_factory=list)
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # ------------------------------------------------------------------
     # State mutation
@@ -166,7 +165,7 @@ class Party:
     # Persona update
     # ------------------------------------------------------------------
 
-    def replace_persona(self, **changes: object) -> "Party":
+    def replace_persona(self, **changes: object) -> Party:
         """Return a *new* Party with an updated Persona.
 
         This is the deliberate escape hatch for the rare case where a party's
@@ -297,13 +296,15 @@ def make_environment(
     persona = Persona(description=setting, knowledge=facts)
     env = Party(id=id, name=name, kind=PartyKind.ENVIRONMENT, persona=persona)
     if initial_state:
-        warnings = validate_environment_state(initial_state)
-        if warnings:
+        schema_warnings = validate_environment_state(initial_state)
+        if schema_warnings:
             import warnings as _w
-            for msg in warnings:
+
+            for msg in schema_warnings:
                 _w.warn(msg, stacklevel=2)
-        # Apply directly without episode tracking (episode_index=-1 means pre-sim)
-        env.state.update(initial_state)
+        # episode_index=0 means pre-simulation setup; apply_state_update also
+        # validates that every value is a valid StateValue type.
+        env.apply_state_update(initial_state, episode_index=0, reason="initial state")
     return env
 
 
