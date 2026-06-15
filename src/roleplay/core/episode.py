@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -301,12 +301,20 @@ class FormattedIncrementClock:
         clock.advance("2024-01-01 09:00", 0)  # → "2024-01-01 10:00"
     """
 
-    _VALID_UNITS: frozenset[str] = frozenset({"seconds", "minutes", "hours", "days", "weeks"})
+    # Maps unit name → a callable that builds the correct timedelta given an amount.
+    # Keeping validation and dispatch in one structure ensures they can never diverge.
+    _UNIT_BUILDERS: ClassVar[dict[str, Callable[[int], timedelta]]] = {
+        "seconds": lambda n: timedelta(seconds=n),
+        "minutes": lambda n: timedelta(minutes=n),
+        "hours": lambda n: timedelta(hours=n),
+        "days": lambda n: timedelta(days=n),
+        "weeks": lambda n: timedelta(weeks=n),
+    }
 
     def __init__(self, unit: str, amount: int, fmt: str) -> None:
-        if unit not in self._VALID_UNITS:
+        if unit not in self._UNIT_BUILDERS:
             raise ValueError(
-                f"Unknown time unit {unit!r}. Valid units: {sorted(self._VALID_UNITS)}"
+                f"Unknown time unit {unit!r}. Valid units: {sorted(self._UNIT_BUILDERS)}"
             )
         self._unit = unit
         self._amount = amount
@@ -320,20 +328,7 @@ class FormattedIncrementClock:
                 f"FormattedIncrementClock: cannot parse {current!r} with format {self._fmt!r}"
             ) from exc
 
-        match self._unit:
-            case "seconds":
-                delta = timedelta(seconds=self._amount)
-            case "minutes":
-                delta = timedelta(minutes=self._amount)
-            case "hours":
-                delta = timedelta(hours=self._amount)
-            case "days":
-                delta = timedelta(days=self._amount)
-            case "weeks":
-                delta = timedelta(weeks=self._amount)
-            case _:  # pragma: no cover — validated in __init__
-                raise AssertionError(f"unreachable unit: {self._unit!r}")
-
+        delta = self._UNIT_BUILDERS[self._unit](self._amount)
         return (dt + delta).strftime(self._fmt)
 
 
