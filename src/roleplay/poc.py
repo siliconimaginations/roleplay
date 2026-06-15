@@ -7,22 +7,22 @@ file, or a mock provider for offline testing.
 Usage::
 
     # Built-in scenario, mock provider (no API key needed):
-    python -m roleplay.poc --mock
+    uv run python -m roleplay.poc --mock
 
-    # Built-in scenario, real Gemini (GEMINI_API_KEY must be set):
-    python -m roleplay.poc
+    # Built-in scenario, real Gemini (.env must contain GEMINI_API_KEY):
+    uv run python -m roleplay.poc
 
-    # Custom scenario from a TOML file (provider and episodes taken from file):
-    python -m roleplay.poc --config scenarios/example.toml
+    # Custom scenario from a TOML file:
+    uv run python -m roleplay.poc --config scenarios/example.toml
 
-    # Custom scenario, force mock (ignores provider in TOML):
-    python -m roleplay.poc --config scenarios/my.toml --mock
+    # Force mock even with a config file:
+    uv run python -m roleplay.poc --config scenarios/my.toml --mock
 
-    # Custom episode count (overrides value in TOML):
-    python -m roleplay.poc --config scenarios/my.toml --episodes 5
+    # Override episode count from command line:
+    uv run python -m roleplay.poc --config scenarios/my.toml --episodes 5
 
-    # Load API keys from a non-default .env file:
-    python -m roleplay.poc --config scenarios/my.toml --env-file secrets/keys.env
+    # Load API keys from a non-default location:
+    uv run python -m roleplay.poc --config scenarios/my.toml --env-file secrets/keys.env
 """
 
 from __future__ import annotations
@@ -30,26 +30,85 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import shutil
+import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from roleplay.core.episode import (
     NoopClock,
     RoundRobinScheduler,
     SimulationHistory,
 )
-from roleplay.core.party import make_environment, make_person
+from roleplay.core.party import PartyKind, make_environment, make_person
 from roleplay.core.simulation_state import SimulationConfig, SimulationState
 from roleplay.engine.engine import SimulationEngine
+from roleplay.engine.observer import ObserverDirective
 from roleplay.memory.store import InMemoryStore
 from roleplay.providers.base import CompletionRequest, CompletionResponse
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+if TYPE_CHECKING:
+    from roleplay.engine.observer import ObserverHook
+    from roleplay.engine.turn import Turn
+
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Mock provider — returns scripted responses so the POC runs without an API key
+# Pretty-print observer — streams turns to the terminal in real time
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _CliObserver:
+    """Prints episode headers and turn text to stdout as the simulation runs."""
+
+    _width: int = field(default_factory=lambda: min(shutil.get_terminal_size().columns, 100))
+
+    async def before_episode(
+        self,
+        state: SimulationState,
+        episode_index: int,
+    ) -> ObserverDirective:
+        rule = "─" * (self._width - 14 - len(str(episode_index + 1)))
+        print(f"\n{'─' * 3}  Episode {episode_index + 1}  {rule}")
+        return ObserverDirective.continue_()
+
+    async def after_turn(
+        self,
+        state: SimulationState,
+        turn: Turn,
+    ) -> ObserverDirective:
+        party = state.get_party(turn.party_id)
+        label = party.name
+        if party.kind is PartyKind.ENVIRONMENT:
+            label += "  [env]"
+
+        underline = "╌" * len(label)
+        print(f"\n  {label}\n  {underline}")
+
+        indent = "  "
+        wrap_width = self._width - len(indent)
+        for para in turn.output.strip().split("\n\n"):
+            print(
+                textwrap.fill(
+                    para.strip(), width=wrap_width, initial_indent=indent, subsequent_indent=indent
+                )
+            )
+
+        return ObserverDirective.continue_()
+
+    async def after_episode(
+        self,
+        state: SimulationState,
+        episode: object,
+    ) -> ObserverDirective:
+        return ObserverDirective.continue_()
+
+
+# ---------------------------------------------------------------------------
+# Mock provider — scripted responses, no API key needed
 # ---------------------------------------------------------------------------
 
 
@@ -109,7 +168,7 @@ def _build_default_state(config: SimulationConfig) -> SimulationState:
         facts=("The annual trade fair is in two weeks", "Economic times are cautious"),
         initial_state={
             "time.simulated": "Day 1, Morning",
-            "weather": "clear",
+            "weather.condition": "clear",
             "event.mood": "cautious optimism",
         },
     )
@@ -129,12 +188,11 @@ def _build_default_state(config: SimulationConfig) -> SimulationState:
 
 
 def _resolve_provider(provider_name: str) -> object:
-    """Return a provider instance for the given name."""
+    """Return a live provider instance for the given name string."""
     if provider_name == "claude":
         from roleplay.providers.claude_provider import ClaudeProvider
 
         return ClaudeProvider()
-    # default: gemini
     from roleplay.providers.gemini import GeminiProvider
 
     return GeminiProvider()
@@ -146,6 +204,7 @@ async def run_poc(
     max_episodes: int = 3,
     config_path: Path | None = None,
     env_file: Path = Path(".env"),
+    observer: ObserverHook | None = None,
 ) -> None:
     """Run the simulation end-to-end.
 
@@ -154,18 +213,18 @@ async def run_poc(
         max_episodes: Number of episodes to run.
         config_path: Optional path to a TOML scenario file.  If omitted the
             built-in Alice/Bob scenario is used.
-        env_file: Path to a ``.env`` file to load API keys from.  Defaults to
-            ``.env`` in the current directory.  Silently ignored if missing.
+        env_file: Path to a ``.env`` file with API keys.  Silently ignored if
+            missing.
+        observer: Optional :class:`~roleplay.engine.observer.ObserverHook` for
+            real-time output or intervention.  ``_CliObserver`` is used when
+            running from the command line.
     """
-    # Always load .env first so API keys are available before any provider import
     from roleplay.config import load_env_file, load_scenario
 
     load_env_file(env_file)
 
     if config_path is not None:
         state, provider_name, file_episodes = load_scenario(config_path)
-        # CLI --episodes overrides file value only when explicitly provided
-        # (we detect this via the sentinel -1 set in main())
         if max_episodes == -1:
             max_episodes = file_episodes
         if use_mock:
@@ -187,23 +246,13 @@ async def run_poc(
 
     if provider_name == "mock":
         provider: object = _MockProvider()
-        logger.info("Using mock provider (no API key required)")
     else:
         provider = _resolve_provider(provider_name)
-        logger.info("Using provider: %s", provider_name)
 
-    engine = SimulationEngine(state=state, provider=provider, memory_store=memory_store)
-
-    logger.info("Starting simulation: %d episodes", max_episodes)
+    engine = SimulationEngine(
+        state=state, provider=provider, memory_store=memory_store, observer=observer
+    )
     await engine.run(max_episodes=max_episodes)
-
-    logger.info("Simulation complete. Summary:")
-    for ep in state.history.completed_episodes():
-        logger.info("  Episode %d: %d turns", ep.index, len(ep.turns))
-        for t in ep.turns:
-            party = state.get_party(t.party_id)
-            preview = t.output[:80].replace("\n", " ")
-            logger.info("    %s: %s…", party.name, preview)
 
 
 def main() -> None:
@@ -235,14 +284,48 @@ def main() -> None:
         help="Path to a .env file with API keys (default: .env)",
     )
     args = parser.parse_args()
+
+    # Silence noisy third-party loggers — especially httpx which would log the
+    # full request URL including the API key.
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("roleplay").setLevel(logging.WARNING)
+
+    observer = _CliObserver()
+
+    # Print a brief header before the simulation starts.
+    from roleplay.config import load_env_file, load_scenario
+
+    load_env_file(args.env_file)
+    if args.config is not None:
+        _state, provider_name, file_episodes = load_scenario(args.config)
+        ep_count = args.episodes if args.episodes != -1 else file_episodes
+        party_names = ", ".join(p.name for p in _state.parties.values())
+        env_name = _state.environment.name
+        provider_label = "mock" if args.mock else provider_name
+        print(f"\nScenario : {args.config.name}")
+        print(f"Setting  : {env_name}")
+        print(f"Parties  : {party_names}")
+        print(f"Provider : {provider_label}")
+        print(f"Episodes : {ep_count}")
+    else:
+        ep_count = args.episodes if args.episodes != -1 else 3
+        print("\nScenario : built-in (Alice & Bob)")
+        print(f"Provider : {'mock' if args.mock else 'gemini'}")
+        print(f"Episodes : {ep_count}")
+
     asyncio.run(
         run_poc(
             use_mock=args.mock,
             max_episodes=args.episodes,
             config_path=args.config,
             env_file=args.env_file,
+            observer=observer,
         )
     )
+
+    total_ep = ep_count
+    print(f"\n✓  Done — {total_ep} episode(s) complete\n")
 
 
 if __name__ == "__main__":
