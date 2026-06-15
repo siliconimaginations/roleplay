@@ -1,7 +1,7 @@
 # Roleplay
 
 [![CI](https://github.com/siliconimaginations/roleplay/actions/workflows/ci.yml/badge.svg)](https://github.com/siliconimaginations/roleplay/actions/workflows/ci.yml)
-[![Coverage](https://github.com/siliconimaginations/roleplay/raw/main/.github/badges/coverage.svg)](https://github.com/siliconimaginations/roleplay/blob/main/.github/badges/coverage.svg)
+[![Coverage](https://raw.githubusercontent.com/siliconimaginations/roleplay/badges/coverage.svg)](https://github.com/siliconimaginations/roleplay/tree/badges)
 
 A multi-party interaction simulator. Configure parties — people, organizations, or environments — give them personas, memories, and goals, then watch LLM agents drive their interactions across discrete episodes.
 
