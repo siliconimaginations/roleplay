@@ -1,0 +1,57 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+.env/
+
+# ---- uv ----
+.uv/
+
+# ---- Testing & coverage ----
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# ---- Mypy ----
+.mypy_cache/
+.dmypy.json
+
+# ---- Ruff ----
+.ruff_cache/
+
+# ---- Editors ----
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.iml
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Local secrets / config ----
+.env.local
+*.env
+
+# ---- SQLite (dev persistence) ----
+*.db
+*.db-shm
+*.db-wal
+
+# ---- Local tooling cache ----
+.tools/

@@ -1,0 +1,44 @@
+name: Gemini AI Code Review
+
+# Runs automatically on every PR open, push, or reopen.
+# Posts (or replaces) a Gemini review comment on the PR.
+#
+# Requires: GEMINI_API_KEY repository secret (Google AI Studio key).
+# Add it at: Settings → Secrets and variables → Actions → New repository secret
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gemini-review:
+    name: Gemini code review
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install --quiet google-generativeai PyGithub
+
+      - name: Run Gemini review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python .github/scripts/gemini_review.py

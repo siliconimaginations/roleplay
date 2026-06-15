@@ -1,0 +1,157 @@
+# CI — runs on every pull request and on push to main.
+#
+# Jobs run in parallel:
+#
+#   lint ──┐
+#   test ──┘  (independent)
+#
+# Total wall-clock target: < 2 min.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel in-flight runs for the same branch/PR when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Lint: ruff (style + format) + mypy (types)  (~20 s)
+  # ─────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff — lint
+        run: uv run ruff check .
+
+      - name: Ruff — format check
+        run: uv run ruff format --check .
+
+      - name: Mypy — type check
+        run: uv run mypy src/
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Test: pytest + coverage  (~30 s initially, grows with test suite)
+  # ─────────────────────────────────────────────────────────────────────────
+  test:
+    name: Test (pytest + coverage)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests + coverage
+        run: |
+          uv run pytest \
+            -m "not integration" \
+            --cov=roleplay \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=60
+
+      - name: Print coverage summary
+        if: always()
+        run: |
+          echo "### Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          python3 - << 'PY'
+          import xml.etree.ElementTree as ET, os
+          report = "coverage.xml"
+          if not os.path.exists(report):
+              print("No coverage report found.")
+          else:
+              tree = ET.parse(report)
+              root = tree.getroot()
+              rate = float(root.get("line-rate", 0)) * 100
+              branch_rate = float(root.get("branch-rate", 0)) * 100
+              print(f"Line coverage:   {rate:.1f}%")
+              print(f"Branch coverage: {branch_rate:.1f}%")
+          PY
+
+      - name: Upload coverage report (artifact)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+      - name: Post coverage comment on PR
+        uses: orgoro/coverage@v3.2
+        if: github.event_name == 'pull_request'
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.60
+          thresholdNew: 0.70
+          thresholdModified: 0.70
+
+      - name: Upload coverage XML (for badge job)
+        uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: coverage-xml-for-badge
+          path: coverage.xml
+          retention-days: 1
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Coverage badge — runs only on push to main, isolated for write perms.
+  # ─────────────────────────────────────────────────────────────────────────
+  coverage-badge:
+    name: Coverage badge update
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true   # Badge commit failure is cosmetic; don't break the build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install genbadge
+        run: pip install --quiet "genbadge[coverage]" defusedxml
+
+      - name: Download coverage XML
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml-for-badge
+
+      - name: Generate coverage badge
+        run: genbadge coverage -i coverage.xml -o .github/badges/coverage.svg
+
+      - name: Commit coverage badge
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: .github/badges/coverage.svg
+          message: "ci: update coverage badge [skip ci]"
+          default_author: github_actions
