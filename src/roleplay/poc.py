@@ -144,7 +144,7 @@ class _CliObserver:
         self._episode_turns.append(turn)
 
         # Track model usage (use getattr for CoreTurn compat in tests).
-        model = getattr(turn, "model_used", "") or ""
+        model = getattr(turn, "model_used", "")
         if model:
             self._episode_models.add(model)
             stats = self._model_stats.setdefault(model, [0, 0, 0])
