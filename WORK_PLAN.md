@@ -16,7 +16,7 @@ Multi-party interaction simulator driven by LLM agents.
 | Stage | Name | Status |
 |-------|------|--------|
 | 0 | Foundation & Tooling | ✅ Complete |
-| 1 | Core Design Docs | 🔲 Planned |
+| 1 | Core Design Docs | ✅ Complete |
 | 2 | Core Implementation | 🔲 Planned |
 | 3 | Memory Engine | 🔲 Planned |
 | 4 | Simulation Engine | 🔲 Planned |
@@ -72,23 +72,32 @@ Repo live, CI running, local dev works.
 
 ---
 
-## Stage 1 — Core Design Docs 🔲
+## Stage 1 — Core Design Docs ✅
 
-Engineering specs for all core modules, written and merged before any implementation.
+All engineering specs merged. No open questions block implementation.
 
-| Doc | Module | Key questions to resolve |
-|-----|--------|--------------------------|
-| `docs/engineering/01-party-model.md` | Party, Persona, mutable state | State schema; how persona is encoded; org vs. person distinction |
-| `docs/engineering/02-environment-model.md` | Environment party, physical + context tracking | Object tracking constraints; what the env "knows" |
-| `docs/engineering/03-episode-model.md` | Episode, SimulatedTime, turn structure | Discrete episode schema; simulated-time mapping |
-| `docs/engineering/04-memory-engine.md` | Memory store, retrieval, compaction, forgetting | Retrieval strategy; compaction trigger; forgetting model |
-| `docs/engineering/05-simulation-engine.md` | Simulation loop, orchestration, turn scheduling | Who drives the loop; how turns are scheduled; how env reacts |
-| `docs/engineering/06-provider-abstraction.md` | LLM provider protocol, rate-limit fallback | Provider protocol; fallback order; throttling strategy |
-| `docs/engineering/07-persistence.md` | Session storage, serialization, long-run resumption | SQLite schema; what is serialized; resume semantics |
-| `docs/engineering/08-cli.md` | CLI commands, scenario definition format | YAML/TOML scenario files; interactive vs. batch mode |
-| `docs/engineering/09-api.md` | REST API (deferred to Stage 8) | Endpoints, auth, WebSocket for live updates |
+| Doc | Module | Status |
+|-----|--------|--------|
+| `docs/engineering/01-party-model.md` | Party, Persona, mutable state | ✅ Merged PR #3 |
+| `docs/engineering/02-environment-model.md` | Environment party, state schema | ✅ Merged PR #4 |
+| `docs/engineering/03-episode-model.md` | Episode, Turn, TurnScheduler, clock | ✅ Merged PR #5 |
+| `docs/engineering/04-memory-engine.md` | Memory store, retrieval, compaction, forgetting | ✅ Merged PR #6 |
+| `docs/engineering/05-simulation-engine.md` | Simulation loop, ObserverHook, prompt assembly | ✅ Merged PR #7 |
+| `docs/engineering/06-provider-abstraction.md` | LLM protocol, Gemini/Claude adapters, Gemma 4 fallback | ✅ Merged PR #8 |
+| `docs/engineering/07-persistence.md` | SQLite schema, session CRUD, fork/branch tree | ✅ Merged PR #9 |
+| `docs/engineering/08-cli.md` | CLI commands, YAML scenario format, interactive pause | ✅ Merged PR #10 |
+| `docs/engineering/09-api.md` | REST API | Deferred to Stage 8 |
 
-Exit criteria: All docs merged; no open questions block implementation start.
+### Advanced features — designed within Stage 1 docs
+
+These features were scoped during Stage 1 and are lower-priority for initial
+implementation. They are fully designed; no new design docs are needed.
+
+| Feature | Where designed | Stage to implement |
+|---------|---------------|-------------------|
+| **Tool usage** (grounding via search, external APIs) | `06-provider-abstraction` | Stage 5 (LLM Provider Layer) |
+| **Human intervention** (observer hook, inject context/persona) | `05-simulation-engine`, `08-cli` | Stage 4 (Simulation Engine) + Stage 7 (CLI) |
+| **Save / load / branching** (fork sessions, game-like save states) | `07-persistence`, `08-cli` | Stage 6 (Persistence) + Stage 7 (CLI) |
 
 ---
 
