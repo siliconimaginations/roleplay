@@ -42,11 +42,17 @@ class GeminiProvider:
     exponential backoff up to _RATE_LIMIT_MAX_RETRIES times, then skips to
     the next model in the chain.  When all models are exhausted, raises
     ProviderExhaustedError.
+
+    A session-level skip list (``_session_exhausted``) prevents retrying models
+    that have already hit their daily quota within the current process run —
+    they are skipped immediately on subsequent :meth:`complete` calls without
+    burning any retry budget.
     """
 
     models: tuple[str, ...] = _DEFAULT_MODELS
     api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
     _session: object = field(default=None, init=False, repr=False)
+    _session_exhausted: set[str] = field(default_factory=set, init=False, repr=False)
 
     @property
     def default_model(self) -> str:
@@ -55,6 +61,10 @@ class GeminiProvider:
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         attempted: list[str] = []
         for model in self.models:
+            if model in self._session_exhausted:
+                # Already hit daily quota this session — skip without retrying.
+                attempted.append(model)
+                continue
             result = await self._try_model(model, request, attempted)
             if result is not None:
                 return result
@@ -78,8 +88,10 @@ class GeminiProvider:
                 attempted.append(model)
                 retry_after = exc.retry_after_seconds or wait
                 if attempt >= _RATE_LIMIT_MAX_RETRIES:
+                    self._session_exhausted.add(model)
                     logger.warning(
-                        "Gemini model %s rate-limited after %d retries, skipping.",
+                        "Gemini model %s rate-limited after %d retries, "
+                        "added to session skip list.",
                         model,
                         _RATE_LIMIT_MAX_RETRIES,
                     )

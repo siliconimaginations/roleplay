@@ -211,3 +211,67 @@ class TestGeminiProviderFallback:
     async def test_custom_models_tuple(self) -> None:
         provider = GeminiProvider(models=("my-model",), api_key="key")
         assert provider.default_model == "my-model"
+
+
+class TestGeminiSessionSkipList:
+    async def test_exhausted_model_skipped_on_next_call(self) -> None:
+        """A model rate-limited in call 1 must not be tried at all in call 2."""
+        provider = GeminiProvider(models=("model-a", "model-b"), api_key="key")
+        rl_resp = _http_resp(429, {"error": "quota"})
+        ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
+        calls: list[str] = []
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            model = "model-a" if "model-a" in url else "model-b"
+            calls.append(model)
+            return rl_resp if model == "model-a" else ok_resp
+
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result1 = await provider.complete(CompletionRequest(prompt="x"))
+            assert result1.model_used == "model-b"
+            calls.clear()
+            # Second call — model-a is in _session_exhausted, must be skipped.
+            result2 = await provider.complete(CompletionRequest(prompt="x"))
+
+        assert result2.model_used == "model-b"
+        assert "model-a" not in calls
+
+    async def test_session_exhausted_populated_after_rate_limit(self) -> None:
+        """_session_exhausted is updated when a model hits max retries."""
+        provider = GeminiProvider(models=("model-a", "model-b"), api_key="key")
+        rl_resp = _http_resp(429, {"error": "quota"})
+        ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            return rl_resp if "model-a" in url else ok_resp
+
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await provider.complete(CompletionRequest(prompt="x"))
+
+        assert "model-a" in provider._session_exhausted
+        assert "model-b" not in provider._session_exhausted
+
+    async def test_all_session_exhausted_raises_immediately(self) -> None:
+        """All models in skip list → ProviderExhaustedError without any HTTP calls."""
+        provider = GeminiProvider(models=("model-a", "model-b"), api_key="key")
+        provider._session_exhausted.add("model-a")
+        provider._session_exhausted.add("model-b")
+        calls: list[str] = []
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            calls.append(url)
+            return _http_resp(200, _make_ok_response())
+
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post),
+            pytest.raises(ProviderExhaustedError),
+        ):
+            await provider.complete(CompletionRequest(prompt="x"))
+
+        assert calls == []  # no HTTP requests made
