@@ -727,6 +727,7 @@ class TestUxFeatures:
 
         _state, _ep, obs = await self._run_episode()
         obs._model_stats = {"mock": [2, 100, 50]}  # type: ignore[attr-defined]
+        obs._total_episodes = 2  # type: ignore[attr-defined]
 
         buf = StringIO()
         with patch("sys.stdout", buf):
@@ -734,7 +735,7 @@ class TestUxFeatures:
 
         output = buf.getvalue()
         assert "Session summary" in output
-        assert "Episodes" in output
+        assert "Episodes  : 2" in output
         assert "Duration" in output
         assert "mock" in output
 

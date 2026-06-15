@@ -111,6 +111,10 @@ class _CliObserver:
     # Goal trend
     _goal_met_count: int = field(default=0, init=False, repr=False)
     _goal_check_count: int = field(default=0, init=False, repr=False)
+    # Separate episode counter so write_session_summary is accurate even when
+    # multiple models are used in the same episode (per-model stats would
+    # overcount if we summed them).
+    _total_episodes: int = field(default=0, init=False, repr=False)
     # Saved for write_env_snapshot / write_session_summary
     _final_state: SimulationState | None = field(default=None, init=False, repr=False)
 
@@ -193,7 +197,8 @@ class _CliObserver:
 
         # Model notice + timing ------------------------------------------------
         elapsed = time.monotonic() - self._episode_start_time
-        # Increment per-episode counter for each model used this episode.
+        self._total_episodes += 1
+        # Increment per-model episode counter (tracks how many episodes each model ran).
         for model in self._episode_models:
             self._model_stats.setdefault(model, [0, 0, 0])[0] += 1
 
@@ -311,8 +316,7 @@ class _CliObserver:
 
         rule = "─" * max(0, self._width - 22)
         print(f"\n{'─' * 3}  Session summary  {rule}")
-        total_ep = sum(v[0] for v in self._model_stats.values())
-        print(f"  Episodes  : {total_ep}")
+        print(f"  Episodes  : {self._total_episodes}")
         print(f"  Duration  : {duration_str}")
         if self._model_stats:
             print("  Models")
