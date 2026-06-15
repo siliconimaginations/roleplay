@@ -38,7 +38,7 @@ import shutil
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from roleplay.core.episode import (
     NoopClock,
@@ -56,6 +56,13 @@ if TYPE_CHECKING:
     from roleplay.engine.observer import ObserverHook
     from roleplay.engine.turn import Turn
 
+
+class _Summarizable(Protocol):
+    """Minimal structural type for providers that can summarise text."""
+
+    async def complete(self, request: CompletionRequest) -> CompletionResponse: ...
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,15 +79,22 @@ class _CliObserver:
         verbosity: Output detail level.
 
             * ``1`` (default) — full turn dialog streamed in real time.
-            * ``0`` — one-line summary per party after each episode; full
-              dialog is collected in memory and can be written to a file via
+            * ``0`` — AI-generated summary per episode; full dialog is
+              collected in memory and can be written to a file via
               :meth:`write_log`.
+        provider: LLM provider used to generate summaries at verbosity=0.
+            Set automatically by :func:`run_poc` after the provider is
+            resolved.  ``None`` produces a fallback "(no summarizer)" line.
     """
 
     verbosity: int = 1
+    provider: _Summarizable | None = None
     _width: int = field(default_factory=lambda: min(shutil.get_terminal_size().columns, 100))
     _episode_turns: list[Turn] = field(default_factory=list, init=False, repr=False)
     _log_lines: list[str] = field(default_factory=list, init=False, repr=False)
+    _episode_start_env_state: dict[str, object] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     async def before_episode(
         self,
@@ -88,6 +102,8 @@ class _CliObserver:
         episode_index: int,
     ) -> ObserverDirective:
         self._episode_turns.clear()
+        # Snapshot environment state now so after_episode can diff it.
+        self._episode_start_env_state = dict(state.environment.state_snapshot())
         rule = "─" * (self._width - 14 - len(str(episode_index + 1)))
         header = f"\n{'─' * 3}  Episode {episode_index + 1}  {rule}"
         print(header)
@@ -136,13 +152,58 @@ class _CliObserver:
         episode: object,
     ) -> ObserverDirective:
         if self.verbosity == 0:
-            # Print one-line snippet per party so the user can follow progress.
-            for turn in self._episode_turns:
-                party = state.get_party(turn.party_id)
-                raw = turn.output.strip().replace("\n", " ")
-                snippet = raw[:100] + "…" if len(raw) > 100 else raw
-                print(f"  {party.name}: {snippet}")
+            await self._print_episode_summary(state)
         return ObserverDirective.continue_()
+
+    async def _print_episode_summary(self, state: SimulationState) -> None:
+        """Print an AI-generated paragraph + environment state diff for the episode."""
+        dialog_parts: list[str] = []
+        for turn in self._episode_turns:
+            party = state.get_party(turn.party_id)
+            dialog_parts.append(f"{party.name}: {turn.output.strip()}")
+        dialog_text = "\n\n".join(dialog_parts)
+
+        summary = await self._summarize(dialog_text)
+
+        # Show only the environment keys that changed *during* this episode.
+        curr_env = dict(state.environment.state_snapshot())
+        state_changes = {
+            k: (self._episode_start_env_state.get(k), v)
+            for k, v in curr_env.items()
+            if self._episode_start_env_state.get(k) != v
+        }
+
+        indent = "  "
+        wrap_width = self._width - len(indent)
+        print(
+            textwrap.fill(
+                summary,
+                width=wrap_width,
+                initial_indent=indent,
+                subsequent_indent=indent,
+            )
+        )
+        if state_changes:
+            for k, (old, new) in state_changes.items():
+                print(f"  ↳ {k}: {old!r} → {new!r}")
+
+    async def _summarize(self, dialog_text: str) -> str:
+        """Return a 1-2 sentence LLM summary of *dialog_text*, or a fallback string."""
+        if self.provider is None:
+            return "(no summarizer configured)"
+        prompt = (
+            "Summarize this roleplay episode in 1-2 sentences. "
+            "Focus on what happened, any decisions or agreements reached, and key dynamics. "
+            "Be specific and concise. No bullet points or headers.\n\n" + dialog_text
+        )
+        try:
+            resp = await self.provider.complete(
+                CompletionRequest(prompt=prompt, max_output_tokens=200)
+            )
+            return str(resp.text).strip()
+        except Exception as exc:
+            logger.debug("Episode summary generation failed: %s", exc)
+            return "(summary unavailable)"
 
     def write_log(self, path: Path) -> None:
         """Write the full dialog collected during the run to *path*."""
@@ -287,9 +348,14 @@ async def run_poc(
     memory_store = InMemoryStore()
 
     if provider_name == "mock":
-        provider: object = _MockProvider()
+        provider: _Summarizable = _MockProvider()
     else:
-        provider = _resolve_provider(provider_name)
+        provider = _resolve_provider(provider_name)  # type: ignore[assignment]
+
+    # Give the CLI observer access to the provider so it can generate
+    # AI summaries at verbosity=0.
+    if isinstance(observer, _CliObserver):
+        observer.provider = provider
 
     engine = SimulationEngine(
         state=state, provider=provider, memory_store=memory_store, observer=observer
