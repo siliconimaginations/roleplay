@@ -23,12 +23,16 @@ Usage::
 
     # Load API keys from a non-default location:
     uv run python -m roleplay.poc --config scenarios/my.toml --env-file secrets/keys.env
+
+    # Quiet mode — one-line summary per episode, full dialog saved to a log file:
+    uv run python -m roleplay.poc --config scenarios/my.toml --verbosity 0
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import logging
 import shutil
 import textwrap
@@ -62,17 +66,32 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class _CliObserver:
-    """Prints episode headers and turn text to stdout as the simulation runs."""
+    """Prints episode headers and turn text to stdout as the simulation runs.
 
+    Args:
+        verbosity: Output detail level.
+
+            * ``1`` (default) — full turn dialog streamed in real time.
+            * ``0`` — one-line summary per party after each episode; full
+              dialog is collected in memory and can be written to a file via
+              :meth:`write_log`.
+    """
+
+    verbosity: int = 1
     _width: int = field(default_factory=lambda: min(shutil.get_terminal_size().columns, 100))
+    _episode_turns: list[Turn] = field(default_factory=list, init=False, repr=False)
+    _log_lines: list[str] = field(default_factory=list, init=False, repr=False)
 
     async def before_episode(
         self,
         state: SimulationState,
         episode_index: int,
     ) -> ObserverDirective:
+        self._episode_turns.clear()
         rule = "─" * (self._width - 14 - len(str(episode_index + 1)))
-        print(f"\n{'─' * 3}  Episode {episode_index + 1}  {rule}")
+        header = f"\n{'─' * 3}  Episode {episode_index + 1}  {rule}"
+        print(header)
+        self._log_lines.append(header)
         return ObserverDirective.continue_()
 
     async def after_turn(
@@ -80,22 +99,34 @@ class _CliObserver:
         state: SimulationState,
         turn: Turn,
     ) -> ObserverDirective:
+        self._episode_turns.append(turn)
         party = state.get_party(turn.party_id)
         label = party.name
         if party.kind is PartyKind.ENVIRONMENT:
             label += "  [env]"
 
         underline = "╌" * len(label)
-        print(f"\n  {label}\n  {underline}")
-
         indent = "  "
         wrap_width = self._width - len(indent)
+
+        lines: list[str] = [f"\n  {label}", f"  {underline}"]
         for para in turn.output.strip().split("\n\n"):
-            print(
+            lines.append(
                 textwrap.fill(
-                    para.strip(), width=wrap_width, initial_indent=indent, subsequent_indent=indent
+                    para.strip(),
+                    width=wrap_width,
+                    initial_indent=indent,
+                    subsequent_indent=indent,
                 )
             )
+
+        # Always accumulate for the log.
+        self._log_lines.extend(lines)
+
+        # Only print when verbosity is high enough.
+        if self.verbosity >= 1:
+            for line in lines:
+                print(line)
 
         return ObserverDirective.continue_()
 
@@ -104,7 +135,18 @@ class _CliObserver:
         state: SimulationState,
         episode: object,
     ) -> ObserverDirective:
+        if self.verbosity == 0:
+            # Print one-line snippet per party so the user can follow progress.
+            for turn in self._episode_turns:
+                party = state.get_party(turn.party_id)
+                raw = turn.output.strip().replace("\n", " ")
+                snippet = raw[:100] + "…" if len(raw) > 100 else raw
+                print(f"  {party.name}: {snippet}")
         return ObserverDirective.continue_()
+
+    def write_log(self, path: Path) -> None:
+        """Write the full dialog collected during the run to *path*."""
+        path.write_text("\n".join(self._log_lines), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +325,17 @@ def main() -> None:
         metavar="PATH",
         help="Path to a .env file with API keys (default: .env)",
     )
+    parser.add_argument(
+        "--verbosity",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        metavar="{0,1}",
+        help=(
+            "Output verbosity: 1=full dialog (default), "
+            "0=episode summaries only (full dialog saved to a log file)"
+        ),
+    )
     args = parser.parse_args()
 
     # Silence noisy third-party loggers — especially httpx which would log the
@@ -291,7 +344,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("roleplay").setLevel(logging.WARNING)
 
-    observer = _CliObserver()
+    observer = _CliObserver(verbosity=args.verbosity)
 
     # Print a brief header before the simulation starts.
     from roleplay.config import load_env_file, load_scenario
@@ -326,6 +379,12 @@ def main() -> None:
 
     total_ep = ep_count
     print(f"\n✓  Done — {total_ep} episode(s) complete\n")
+
+    if args.verbosity == 0:
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = Path(f"roleplay_{ts}.log")
+        observer.write_log(log_path)
+        print(f"Full dialog: {log_path}\n")
 
 
 if __name__ == "__main__":
