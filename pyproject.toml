@@ -23,6 +23,7 @@ dev = [
 
 [project.scripts]
 roleplay = "roleplay.cli:main"
+roleplay-validate = "roleplay.validate:main"
 
 [build-system]
 requires = ["hatchling"]
