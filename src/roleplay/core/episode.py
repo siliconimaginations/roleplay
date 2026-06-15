@@ -35,7 +35,7 @@ class ToolCall:
     """
 
     tool_name: str
-    arguments: dict[str, object]  # JSON-serialisable; mutable but not reassignable
+    arguments: dict[str, object]  # JSON-serialisable; treat as read-only after construction
     result: str  # Stringified result (or error summary) injected back into prompt
     error: str | None = None
 
