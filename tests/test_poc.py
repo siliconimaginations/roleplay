@@ -45,7 +45,7 @@ class TestBuildState:
         state = _build_state(cfg)
         snap = state.environment.state_snapshot()
         assert "time.simulated" in snap
-        assert "weather" in snap
+        assert "weather.condition" in snap
 
 
 class TestPocRunMock:

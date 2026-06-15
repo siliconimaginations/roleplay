@@ -66,7 +66,7 @@ facts   = ["Coffee is available", "The projector works"]
 
 [environment.initial_state]
 "time.simulated" = "Day 1"
-weather          = "indoor"
+"weather.condition" = "indoor"
 """
 
 
@@ -221,7 +221,7 @@ class TestLoadScenarioFull:
 
     def test_environment_initial_state(self, tmp_path: Path) -> None:
         state, _, _ = self._load(tmp_path)
-        assert state.environment.get_state("weather") == "indoor"
+        assert state.environment.get_state("weather.condition") == "indoor"
 
     def test_environment_facts(self, tmp_path: Path) -> None:
         state, _, _ = self._load(tmp_path)

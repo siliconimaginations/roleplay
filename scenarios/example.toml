@@ -58,5 +58,5 @@ facts   = [
 # State keys must follow the dot-prefix schema: time.*, weather.*, event.*, location.*
 [environment.initial_state]
 "time.simulated" = "Day 1, Morning"
-weather          = "clear"
+weather.condition = "clear"
 "event.mood"     = "cautious optimism"
