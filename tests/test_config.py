@@ -235,3 +235,34 @@ class TestLoadScenarioFull:
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_scenario(tmp_path / "missing.toml")
+
+
+# ---------------------------------------------------------------------------
+# Smoke test: the committed example.toml must load without error
+# ---------------------------------------------------------------------------
+
+
+class TestExampleToml:
+    def test_example_toml_loads(self) -> None:
+        """scenarios/example.toml must parse and build a valid SimulationState."""
+        from pathlib import Path
+
+        example = Path(__file__).parent.parent / "scenarios" / "example.toml"
+        assert example.exists(), "scenarios/example.toml not found"
+        state, provider, episodes = load_scenario(example)
+        assert provider == "gemini"
+        assert episodes == 3
+        assert "alice" in state.parties
+        assert "bob" in state.parties
+        assert state.environment.name == "Riverside Town"
+
+    def test_example_toml_initial_state_keys_are_valid(self) -> None:
+        """All initial_state keys in example.toml must pass StateValue validation."""
+        from pathlib import Path
+
+        example = Path(__file__).parent.parent / "scenarios" / "example.toml"
+        state, _, _ = load_scenario(example)
+        snap = state.environment.state_snapshot()
+        # Dotted keys must be stored as literal strings, not nested dicts
+        assert "weather.condition" in snap
+        assert isinstance(snap["weather.condition"], str)
