@@ -138,7 +138,11 @@ class TestGeminiProviderRateLimit:
             await provider._call("model-a", CompletionRequest(prompt="x"))
 
     async def test_no_retry_after_skips_immediately(self, provider: GeminiProvider) -> None:
-        """429 with no retry-after header → daily quota; skip model-a after 1 attempt."""
+        """429 with no retry-after header → daily quota; model-a attempted once, no retries.
+
+        "Skips immediately" means no retry loop — one HTTP call to model-a, then
+        straight to model-b.  model-a is still attempted; it just isn't retried.
+        """
         ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
         rl_resp = _http_resp(429, {"error": "quota"})  # no retry-after header
         call_count = 0
