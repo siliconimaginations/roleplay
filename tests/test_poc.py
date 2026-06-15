@@ -9,7 +9,8 @@ from __future__ import annotations
 from roleplay.core.simulation_state import SimulationConfig
 from roleplay.engine.engine import SimulationEngine
 from roleplay.memory.store import InMemoryStore
-from roleplay.poc import _build_state, _MockProvider, run_poc
+from roleplay.poc import _build_default_state as _build_state
+from roleplay.poc import _MockProvider, run_poc
 
 
 class TestMockProvider:

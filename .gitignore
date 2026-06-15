@@ -45,6 +45,8 @@ htmlcov/
 Thumbs.db
 
 # ---- Local secrets / config ----
+.env
+scenarios/*.local.toml
 .env.local
 *.env
 

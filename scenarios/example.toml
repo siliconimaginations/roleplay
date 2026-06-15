@@ -1,0 +1,62 @@
+# Roleplay scenario configuration
+# ================================
+# Copy this file, rename it, and edit to define your own simulation.
+# Private copies ending in .local.toml are gitignored.
+#
+# Run with:
+#   python -m roleplay.poc --config scenarios/example.toml
+#   python -m roleplay.poc --config scenarios/example.toml --mock
+#   python -m roleplay.poc --config scenarios/example.toml --episodes 5
+
+# ---------------------------------------------------------------------------
+# Simulation settings
+# ---------------------------------------------------------------------------
+[simulation]
+session_id             = "example-001"
+provider               = "gemini"   # gemini | claude | mock
+episodes               = 3
+context_window_episodes = 5
+memory_max_entries     = 20
+environment_reactive   = true       # environment party gets its own turn each episode
+
+# ---------------------------------------------------------------------------
+# Parties — people and organisations who interact
+# ---------------------------------------------------------------------------
+[[parties]]
+id          = "alice"
+kind        = "person"            # person | organization
+name        = "Alice"
+description = "A pragmatic negotiator who values clear outcomes"
+goals       = ["Reach a fair agreement", "Preserve the long-term relationship"]
+traits      = ["calm", "strategic", "direct"]
+knowledge   = ["Experienced in conflict resolution", "Familiar with local market rates"]
+constraints = ["Must stay within the approved budget", "Cannot make binding commitments without sign-off"]
+
+[[parties]]
+id          = "bob"
+kind        = "person"
+name        = "Bob"
+description = "An optimistic entrepreneur with a strong product vision"
+goals       = ["Secure funding or partnership", "Build credibility in the market"]
+traits      = ["enthusiastic", "creative", "risk-tolerant"]
+knowledge   = ["Has a working product prototype", "Understands the technical stack deeply"]
+constraints = ["Limited runway — approximately 6 months of cash remaining"]
+
+# ---------------------------------------------------------------------------
+# Environment — the world the parties inhabit
+# ---------------------------------------------------------------------------
+[environment]
+id      = "town"
+name    = "Riverside Town"
+setting = "A small riverside town in early autumn, known for its trade fairs"
+facts   = [
+    "The annual trade fair opens in two weeks",
+    "Economic sentiment in the region is cautiously optimistic",
+    "The town council recently approved a small-business grant programme",
+]
+
+# State keys must follow the dot-prefix schema: time.*, weather.*, event.*, location.*
+[environment.initial_state]
+"time.simulated" = "Day 1, Morning"
+weather          = "clear"
+"event.mood"     = "cautious optimism"
