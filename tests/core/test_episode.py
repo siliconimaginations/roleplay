@@ -1,4 +1,5 @@
 """Tests for src/roleplay/core/episode.py."""
+
 from __future__ import annotations
 
 import pytest
@@ -49,9 +50,7 @@ def _closed_episode(index: int = 0, num_turns: int = 2) -> Episode:
     return ep
 
 
-def _history_with(
-    closed: int = 0, has_open: bool = False
-) -> SimulationHistory:
+def _history_with(closed: int = 0, has_open: bool = False) -> SimulationHistory:
     h = SimulationHistory()
     for i in range(closed):
         h.episodes.append(_closed_episode(index=i))

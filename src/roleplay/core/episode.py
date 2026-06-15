@@ -109,8 +109,7 @@ class Episode:
         """
         if self.ended_at is not None:
             raise RuntimeError(
-                f"Cannot add a turn to closed episode {self.index}. "
-                "Closed episodes are immutable."
+                f"Cannot add a turn to closed episode {self.index}. Closed episodes are immutable."
             )
         self.turns.append(turn)
 
@@ -302,15 +301,12 @@ class FormattedIncrementClock:
         clock.advance("2024-01-01 09:00", 0)  # → "2024-01-01 10:00"
     """
 
-    _VALID_UNITS: frozenset[str] = frozenset(
-        {"seconds", "minutes", "hours", "days", "weeks"}
-    )
+    _VALID_UNITS: frozenset[str] = frozenset({"seconds", "minutes", "hours", "days", "weeks"})
 
     def __init__(self, unit: str, amount: int, fmt: str) -> None:
         if unit not in self._VALID_UNITS:
             raise ValueError(
-                f"Unknown time unit {unit!r}. "
-                f"Valid units: {sorted(self._VALID_UNITS)}"
+                f"Unknown time unit {unit!r}. Valid units: {sorted(self._VALID_UNITS)}"
             )
         self._unit = unit
         self._amount = amount
@@ -321,8 +317,7 @@ class FormattedIncrementClock:
             dt = datetime.strptime(current, self._fmt)
         except ValueError as exc:
             raise ValueError(
-                f"FormattedIncrementClock: cannot parse {current!r} "
-                f"with format {self._fmt!r}"
+                f"FormattedIncrementClock: cannot parse {current!r} with format {self._fmt!r}"
             ) from exc
 
         match self._unit:
