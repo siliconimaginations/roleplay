@@ -120,8 +120,7 @@ class TestMaybeCompact:
             _ep(importance=0.9, episode_index=i, content=f"protected {i}") for i in range(5)
         ]
         compactable = [
-            _ep(importance=0.3, episode_index=i + 10, content=f"compactable {i}")
-            for i in range(20)
+            _ep(importance=0.3, episode_index=i + 10, content=f"compactable {i}") for i in range(20)
         ]
         await store.write_many(protected + compactable)
         await maybe_compact(
@@ -178,9 +177,7 @@ class TestMaybeCompact:
 
     async def test_compaction_by_char_limit(self) -> None:
         store = InMemoryStore()
-        entries = [
-            _ep(importance=0.3, episode_index=i, content="x" * 100) for i in range(15)
-        ]
+        entries = [_ep(importance=0.3, episode_index=i, content="x" * 100) for i in range(15)]
         await store.write_many(entries)
         ran = await maybe_compact(
             store,
@@ -197,9 +194,7 @@ class TestMaybeCompact:
         store = InMemoryStore()
         entries = [
             _ep(importance=0.9, episode_index=i, content=f"protected {i}") for i in range(60)
-        ] + [
-            _ep(importance=0.3, episode_index=i + 60, content=f"c{i}") for i in range(10)
-        ]
+        ] + [_ep(importance=0.3, episode_index=i + 60, content=f"c{i}") for i in range(10)]
         await store.write_many(entries)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
