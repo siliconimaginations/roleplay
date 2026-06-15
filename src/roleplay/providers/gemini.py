@@ -94,25 +94,47 @@ class GeminiProvider:
         request: CompletionRequest,
         attempted: list[str],
     ) -> CompletionResponse | None:
-        """Attempt a single model with rate-limit retries. Returns None to skip."""
+        """Attempt a single model with rate-limit retries.  Returns None to skip.
+
+        Two distinct rate-limit situations:
+
+        * **RPM / per-minute throttle** — the API includes a ``retry-after``
+          header.  We honour it and retry up to ``_RATE_LIMIT_MAX_RETRIES``
+          times; the minute window resets and subsequent attempts may succeed.
+
+        * **RPD / daily quota** — no ``retry-after`` header (or a value that
+          would extend beyond the session).  Waiting does nothing; the quota
+          resets at midnight.  We skip immediately to the next model and add
+          this one to the session skip list.
+        """
         wait = _RATE_LIMIT_INITIAL_WAIT
         for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
             try:
                 return await self._call(model, request)
             except ProviderRateLimitError as exc:
                 attempted.append(model)
-                retry_after = exc.retry_after_seconds or wait
+                retry_after = exc.retry_after_seconds
+
+                # No retry-after hint → daily quota exhausted; skip immediately.
+                if retry_after is None:
+                    self._session_exhausted.add(model)
+                    logger.warning(
+                        "Gemini model %s daily quota exhausted, added to session skip list.",
+                        model,
+                    )
+                    return None
+
                 if attempt >= _RATE_LIMIT_MAX_RETRIES:
                     self._session_exhausted.add(model)
                     logger.warning(
-                        "Gemini model %s rate-limited after %d retries, "
-                        "added to session skip list.",
+                        "Gemini model %s RPM-limited after %d retries, added to session skip list.",
                         model,
                         _RATE_LIMIT_MAX_RETRIES,
                     )
                     return None
+
                 logger.info(
-                    "Gemini rate limit on %s (attempt %d/%d), waiting %.1fs",
+                    "Gemini RPM limit on %s (attempt %d/%d), waiting %.1fs",
                     model,
                     attempt + 1,
                     _RATE_LIMIT_MAX_RETRIES,

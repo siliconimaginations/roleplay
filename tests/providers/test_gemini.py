@@ -137,10 +137,33 @@ class TestGeminiProviderRateLimit:
         ):
             await provider._call("model-a", CompletionRequest(prompt="x"))
 
-    async def test_rate_limit_retries_then_skips(self, provider: GeminiProvider) -> None:
-        """After max retries on model-a, falls through to model-b."""
+    async def test_no_retry_after_skips_immediately(self, provider: GeminiProvider) -> None:
+        """429 with no retry-after header → daily quota; skip model-a after 1 attempt."""
         ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
-        rl_resp = _http_resp(429, {"error": "quota"})
+        rl_resp = _http_resp(429, {"error": "quota"})  # no retry-after header
+        call_count = 0
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            return rl_resp if "model-a" in url else ok_resp
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post):
+            result = await provider.complete(CompletionRequest(prompt="x"))
+
+        assert result.text == "ok"
+        assert result.model_used == "model-b"
+        # model-a tried once (no retries), model-b tried once
+        assert call_count == 2
+
+    async def test_retry_after_present_triggers_retries(self, provider: GeminiProvider) -> None:
+        """429 WITH retry-after header → RPM throttle; retries up to max then skips."""
+        ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
+        rl_resp = httpx.Response(
+            429,
+            content=b'{"error": "quota"}',
+            headers={"retry-after": "5"},
+        )
         call_count = 0
 
         async def mock_post(url: str, **kwargs: object) -> httpx.Response:
@@ -156,6 +179,7 @@ class TestGeminiProviderRateLimit:
 
         assert result.text == "ok"
         assert result.model_used == "model-b"
+        # model-a: initial + max retries, then model-b: 1 call
         assert call_count == _RATE_LIMIT_MAX_RETRIES + 1 + 1
 
     async def test_all_models_exhausted_raises(self, provider: GeminiProvider) -> None:
