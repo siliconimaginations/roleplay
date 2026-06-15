@@ -293,7 +293,12 @@ class TestCliObserverVerbosity:
         assert "╌" not in output
 
     async def test_verbosity_0_prints_episode_summary(self) -> None:
-        """At verbosity=0, after_episode must print a snippet per party."""
+        """At verbosity=0, after_episode must print an AI-generated summary.
+
+        We cannot assert on specific party names because the mock provider
+        returns scripted text unrelated to the dialog; instead we verify
+        that non-empty, non-header content appears after the episode header.
+        """
         from io import StringIO
         from unittest.mock import patch
 
@@ -304,8 +309,13 @@ class TestCliObserverVerbosity:
         with patch("sys.stdout", buf):
             await run_poc(use_mock=True, max_episodes=1, observer=obs)
         output = buf.getvalue()
-        # At least one party name must appear in the summary lines
-        assert "Alice" in output or "Bob" in output
+        # Episode header must be present.
+        assert "Episode" in output
+        # Some summary text must follow (non-empty lines that aren't headers).
+        non_header_lines = [
+            ln for ln in output.split("\n") if ln.strip() and "Episode" not in ln and "─" not in ln
+        ]
+        assert len(non_header_lines) > 0
 
     async def test_write_log_contains_full_dialog(self, tmp_path: Path) -> None:
         """write_log must persist the full turn text regardless of verbosity."""
