@@ -52,8 +52,6 @@ select = [
     "RUF",  # ruff-specific rules
 ]
 ignore = [
-    "ANN101",  # missing type for `self`
-    "ANN102",  # missing type for `cls`
 ]
 
 [tool.ruff.lint.isort]
