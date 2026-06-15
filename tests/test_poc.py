@@ -7,12 +7,16 @@ Verifies the full stack assembles correctly and produces episode output.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from roleplay.core.simulation_state import SimulationConfig
 from roleplay.engine.engine import SimulationEngine
 from roleplay.memory.store import InMemoryStore
 from roleplay.poc import _build_default_state as _build_state
 from roleplay.poc import _MockProvider, run_poc
+
+if TYPE_CHECKING:
+    from roleplay.providers.base import CompletionRequest
 
 
 class TestMockProvider:
@@ -349,3 +353,135 @@ class TestCliObserverVerbosity:
         log = tmp_path / "v1.log"
         obs.write_log(log)
         assert "Episode" in log.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Goal tracking
+# ---------------------------------------------------------------------------
+
+
+class _GoalProvider:
+    """Stub provider that returns a fixed goal-check response."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def complete(self, request: CompletionRequest) -> object:
+        from roleplay.providers.base import CompletionResponse
+
+        return CompletionResponse(text=self._text, model_used="mock")
+
+
+class TestCliObserverGoal:
+    """Per-episode goal check, goal-met halt, and no-goal fast-path."""
+
+    async def _run_one_episode(self) -> tuple[object, object]:
+        """Return (state, completed_episode) for a minimal mock run."""
+        cfg = SimulationConfig(session_id="goal-t", environment_reactive=False, goal="")
+        state = _build_state(cfg)
+        engine = SimulationEngine(
+            state=state, provider=_MockProvider(), memory_store=InMemoryStore()
+        )
+        await engine.run(max_episodes=1)
+        ep = state.history.completed_episodes()[0]
+        return state, ep
+
+    async def test_goal_met_halts_simulation(self) -> None:
+        """after_episode returns halt when provider signals 'Goal met:'."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep = await self._run_one_episode()
+        state.config.goal = "Reach a deal"  # inject goal retroactively
+
+        obs = _CliObserver(provider=_GoalProvider("Goal met: They reached a deal."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        with patch("sys.stdout", StringIO()):
+            directive = await obs.after_episode(state, ep)
+
+        assert directive.is_halt
+        assert directive.reason == "Goal achieved"
+
+    async def test_goal_not_met_continues(self) -> None:
+        """after_episode returns continue_ when goal is not yet achieved."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep = await self._run_one_episode()
+        state.config.goal = "Reach a deal"
+
+        obs = _CliObserver(provider=_GoalProvider("Goal not yet met: Still far apart."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        with patch("sys.stdout", StringIO()):
+            directive = await obs.after_episode(state, ep)
+
+        assert not directive.is_halt
+
+    async def test_no_goal_skips_check(self) -> None:
+        """When state.config.goal is empty the provider must not be called."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        class _ShouldNotCall:
+            async def complete(self, request: object) -> object:
+                raise AssertionError("provider.complete called with no goal set")
+
+        state, ep = await self._run_one_episode()
+        # goal is "" (default) — provider must not be invoked
+        obs = _CliObserver(provider=_ShouldNotCall())  # type: ignore[arg-type]
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        with patch("sys.stdout", StringIO()):
+            directive = await obs.after_episode(state, ep)
+
+        assert not directive.is_halt
+
+    async def test_goal_status_line_in_output(self) -> None:
+        """The ⊙ goal-status line appears in stdout when a goal is set."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep = await self._run_one_episode()
+        state.config.goal = "Reach a deal"
+
+        obs = _CliObserver(provider=_GoalProvider("Goal not yet met: Parties are close."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_episode(state, ep)
+
+        assert "⊙" in buf.getvalue()
+
+    async def test_goal_line_added_to_log(self) -> None:
+        """The goal-status line is captured in _log_lines for write_log."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep = await self._run_one_episode()
+        state.config.goal = "Reach a deal"
+
+        obs = _CliObserver(provider=_GoalProvider("Goal not yet met: Still negotiating."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        with patch("sys.stdout", StringIO()):
+            await obs.after_episode(state, ep)
+
+        assert any("⊙" in line for line in obs._log_lines)  # type: ignore[attr-defined]
