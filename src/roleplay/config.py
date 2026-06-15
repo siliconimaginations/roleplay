@@ -109,6 +109,7 @@ def load_scenario(path: Path) -> tuple[SimulationState, str, int]:
         memory_max_entries=int(sim.get("memory_max_entries", 20)),
         environment_reactive=bool(sim.get("environment_reactive", True)),
         auto_checkpoint=bool(sim.get("auto_checkpoint", False)),
+        goal=str(sim.get("goal", "")),
     )
 
     parties: dict[str, Any] = {}

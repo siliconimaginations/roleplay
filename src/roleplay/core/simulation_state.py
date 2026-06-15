@@ -41,6 +41,7 @@ class SimulationConfig:
     auto_checkpoint: bool = True
     passive_observation_parties: list[str] = field(default_factory=list)
     prompt_char_budget: int = 20_000
+    goal: str = ""  # Optional end condition; checked after every episode via LLM.
 
 
 @dataclass

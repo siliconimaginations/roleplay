@@ -153,16 +153,28 @@ class _CliObserver:
     ) -> ObserverDirective:
         if self.verbosity == 0:
             await self._print_episode_summary(state)
+
+        if state.config.goal:
+            status, met = await self._check_goal_progress(state)
+            goal_line = f"  ⊙ {status}"
+            print(goal_line)
+            self._log_lines.append(goal_line)
+            if met:
+                return ObserverDirective.halt(reason="Goal achieved")
+
         return ObserverDirective.continue_()
+
+    def _build_dialog_text(self, state: SimulationState) -> str:
+        """Build a plain-text transcript of this episode's turns."""
+        parts: list[str] = []
+        for turn in self._episode_turns:
+            party = state.get_party(turn.party_id)
+            parts.append(f"{party.name}: {turn.output.strip()}")
+        return "\n\n".join(parts)
 
     async def _print_episode_summary(self, state: SimulationState) -> None:
         """Print an AI-generated paragraph + environment state diff for the episode."""
-        dialog_parts: list[str] = []
-        for turn in self._episode_turns:
-            party = state.get_party(turn.party_id)
-            dialog_parts.append(f"{party.name}: {turn.output.strip()}")
-        dialog_text = "\n\n".join(dialog_parts)
-
+        dialog_text = self._build_dialog_text(state)
         summary = await self._summarize(dialog_text)
 
         # Show only the environment keys that changed *during* this episode.
@@ -204,6 +216,27 @@ class _CliObserver:
         except Exception as exc:
             logger.debug("Episode summary generation failed: %s", exc)
             return "(summary unavailable)"
+
+    async def _check_goal_progress(self, state: SimulationState) -> tuple[str, bool]:
+        """Ask the LLM if the simulation goal is met; return (one-sentence status, met)."""
+        if self.provider is None:
+            return ("(no provider — cannot evaluate goal)", False)
+        dialog_text = self._build_dialog_text(state)
+        prompt = (
+            f"Simulation goal: {state.config.goal}\n\n"
+            f"Episode dialog:\n{dialog_text}\n\n"
+            "In exactly one sentence, state whether this goal has been achieved. "
+            "Begin with 'Goal met:' if fully achieved, or 'Goal not yet met:' if not."
+        )
+        try:
+            resp = await self.provider.complete(
+                CompletionRequest(prompt=prompt, max_output_tokens=80)
+            )
+            text = str(resp.text).strip()
+            return (text, text.lower().startswith("goal met:"))
+        except Exception as exc:
+            logger.debug("Goal progress check failed: %s", exc)
+            return ("(goal check unavailable)", False)
 
     def write_log(self, path: Path) -> None:
         """Write the full dialog collected during the run to *path*."""
