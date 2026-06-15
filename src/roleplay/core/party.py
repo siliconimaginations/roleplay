@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from dataclasses import fields as dc_fields
 from dataclasses import replace as dc_replace
 from datetime import UTC, datetime
 from enum import Enum
@@ -179,6 +180,13 @@ class Party:
         Raises:
             TypeError: If any keyword argument is not a valid Persona field.
         """
+        valid_fields = {f.name for f in dc_fields(Persona)}
+        invalid = set(changes) - valid_fields
+        if invalid:
+            raise TypeError(
+                "replace_persona() got unexpected keyword argument(s): "
+                + ", ".join(sorted(invalid))
+            )
         new_persona = dc_replace(self.persona, **changes)  # type: ignore[arg-type]
         return dc_replace(self, persona=new_persona)
 
@@ -255,14 +263,20 @@ def make_person(
     id: str,
     name: str,
     description: str,
-    **persona_kwargs: object,
+    *,
+    goals: tuple[str, ...] = (),
+    traits: tuple[str, ...] = (),
+    knowledge: tuple[str, ...] = (),
+    constraints: tuple[str, ...] = (),
 ) -> Party:
-    """Construct a PERSON party.
-
-    All ``persona_kwargs`` are forwarded to :class:`Persona`
-    (``goals``, ``traits``, ``knowledge``, ``constraints``).
-    """
-    persona = Persona(description=description, **persona_kwargs)  # type: ignore[arg-type]
+    """Construct a PERSON party."""
+    persona = Persona(
+        description=description,
+        goals=goals,
+        traits=traits,
+        knowledge=knowledge,
+        constraints=constraints,
+    )
     return Party(id=id, name=name, kind=PartyKind.PERSON, persona=persona)
 
 
@@ -270,10 +284,20 @@ def make_organization(
     id: str,
     name: str,
     description: str,
-    **persona_kwargs: object,
+    *,
+    goals: tuple[str, ...] = (),
+    traits: tuple[str, ...] = (),
+    knowledge: tuple[str, ...] = (),
+    constraints: tuple[str, ...] = (),
 ) -> Party:
     """Construct an ORGANIZATION party."""
-    persona = Persona(description=description, **persona_kwargs)  # type: ignore[arg-type]
+    persona = Persona(
+        description=description,
+        goals=goals,
+        traits=traits,
+        knowledge=knowledge,
+        constraints=constraints,
+    )
     return Party(id=id, name=name, kind=PartyKind.ORGANIZATION, persona=persona)
 
 

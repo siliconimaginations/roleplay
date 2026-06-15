@@ -280,6 +280,11 @@ class TestReplacePersona:
         alice2 = alice.replace_persona(description="Updated desc")
         assert alice2.state["mood"] == "happy"
 
+    def test_invalid_field_raises(self) -> None:
+        alice = _alice()
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            alice.replace_persona(nonexistent_field="value")
+
 
 # ---------------------------------------------------------------------------
 # to_prompt_context
