@@ -554,3 +554,241 @@ class TestSummarize:
         result = await obs._summarize("")  # type: ignore[attr-defined]
         assert result.strip(), "_summarize returned empty/whitespace for empty dialog"
         assert result != ""
+
+
+# ---------------------------------------------------------------------------
+# UX feature tests (episode counter, timing, model label, goal tally,
+# session summary, env snapshot)
+# ---------------------------------------------------------------------------
+
+
+class TestUxFeatures:
+    """Tests for the 6 UX improvements added in feat/ux-improvements."""
+
+    async def _run_episode(self, goal: str = "") -> tuple[object, object, object]:
+        """Return (state, ep, obs) after running one mock episode."""
+        from roleplay.poc import _CliObserver
+
+        cfg = SimulationConfig(session_id="ux-t", environment_reactive=False, goal=goal)
+        state = _build_state(cfg)
+        engine = SimulationEngine(
+            state=state, provider=_MockProvider(), memory_store=InMemoryStore()
+        )
+        obs = _CliObserver()
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+        await engine.run(max_episodes=1)
+        ep = state.history.completed_episodes()[0]
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        return state, ep, obs
+
+    # ------------------------------------------------------------------
+    # Episode counter in header
+
+    async def test_episode_counter_with_max_shows_fraction(self) -> None:
+        """before_episode prints 'Episode N / M' when max_episodes is known."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver()
+        obs.max_episodes = 5  # type: ignore[attr-defined]
+        cfg = SimulationConfig(session_id="t")
+        state = _build_state(cfg)
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.before_episode(state, 0)
+        assert "Episode 1 / 5" in buf.getvalue()
+
+    async def test_episode_counter_without_max_shows_plain(self) -> None:
+        """before_episode prints 'Episode N' when max_episodes is not set."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver()  # max_episodes defaults to 0
+        cfg = SimulationConfig(session_id="t")
+        state = _build_state(cfg)
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.before_episode(state, 2)
+        assert "Episode 3" in buf.getvalue()
+        assert "/ 0" not in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Episode timing
+
+    async def test_timing_line_appears_after_episode(self) -> None:
+        """after_episode always prints a timing line with ⏱."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        state, ep, obs = await self._run_episode()
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_episode(state, ep)  # type: ignore[arg-type]
+
+        assert "⏱" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Model switch notice
+
+    async def test_model_label_shown_for_non_default_model(self) -> None:
+        """after_episode shows ⚡ + model name when a non-default model is used."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        state, ep, obs = await self._run_episode()
+        obs._default_model = "default-model"  # type: ignore[attr-defined]
+        obs._episode_models = {"fallback-model"}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_episode(state, ep)  # type: ignore[arg-type]
+
+        output = buf.getvalue()
+        assert "⚡" in output
+        assert "fallback-model" in output
+
+    async def test_no_model_label_when_only_default_used(self) -> None:
+        """after_episode shows plain ⏱ line when only the default model ran."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        state, ep, obs = await self._run_episode()
+        obs._default_model = "default-model"  # type: ignore[attr-defined]
+        obs._episode_models = {"default-model"}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_episode(state, ep)  # type: ignore[arg-type]
+
+        output = buf.getvalue()
+        assert "⏱" in output
+        assert "⚡" not in output
+
+    # ------------------------------------------------------------------
+    # Goal tally
+
+    async def test_goal_tally_increments_across_episodes(self) -> None:
+        """Goal tally '(met N / M)' increments correctly across multiple episodes."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep, _ = await self._run_episode(goal="Reach a deal")
+
+        obs = _CliObserver(provider=_GoalProvider("Goal met: They reached a deal."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            # Simulate two episodes both meeting the goal
+            obs._goal_check_count = 1  # type: ignore[attr-defined]
+            obs._goal_met_count = 1  # type: ignore[attr-defined]
+            obs._final_state = state  # type: ignore[attr-defined]
+            await obs.after_episode(state, ep)  # type: ignore[arg-type]
+
+        # After the second episode where goal is met: met 2 / 2
+        assert "(met 2 / 2)" in buf.getvalue()
+
+    async def test_goal_tally_shows_zero_when_not_met(self) -> None:
+        """Goal tally shows 'met 0 / 1' when goal is not achieved."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        state, ep, _ = await self._run_episode(goal="Reach a deal")
+
+        obs = _CliObserver(provider=_GoalProvider("Goal not yet met: Still negotiating."))
+        obs._episode_turns = list(ep.turns)  # type: ignore[attr-defined]
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_episode(state, ep)  # type: ignore[arg-type]
+
+        assert "(met 0 / 1)" in buf.getvalue()
+
+    # ------------------------------------------------------------------
+    # Session summary
+
+    async def test_write_session_summary_prints_episodes_and_duration(self) -> None:
+        """write_session_summary outputs episode count and duration."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        _state, _ep, obs = await self._run_episode()
+        obs._model_stats = {"mock": [2, 100, 50]}  # type: ignore[attr-defined]
+        obs._total_episodes = 2  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            obs.write_session_summary()  # type: ignore[attr-defined]
+
+        output = buf.getvalue()
+        assert "Session summary" in output
+        assert "Episodes  : 2" in output
+        assert "Duration" in output
+        assert "mock" in output
+
+    async def test_write_session_summary_shows_token_totals(self) -> None:
+        """write_session_summary shows combined prompt+completion token count."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver()
+        obs._model_stats = {"gemini-2.5-flash": [3, 1000, 500]}  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            obs.write_session_summary()  # type: ignore[attr-defined]
+
+        output = buf.getvalue()
+        # 1000 + 500 = 1500 tokens should appear
+        assert "1,500" in output
+
+    # ------------------------------------------------------------------
+    # Final environment snapshot
+
+    async def test_write_env_snapshot_shows_state_keys(self) -> None:
+        """write_env_snapshot prints all environment state keys."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        state, _ep, obs = await self._run_episode()
+        obs._final_state = state  # type: ignore[attr-defined]
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            obs.write_env_snapshot()  # type: ignore[attr-defined]
+
+        output = buf.getvalue()
+        assert "Final environment state" in output
+        # Default state has time.simulated and weather.condition
+        assert "time.simulated" in output
+
+    async def test_write_env_snapshot_noop_when_no_final_state(self) -> None:
+        """write_env_snapshot does nothing when _final_state is None."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver()
+        # _final_state defaults to None
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            obs.write_env_snapshot()  # type: ignore[attr-defined]
+
+        assert buf.getvalue() == ""

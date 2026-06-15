@@ -36,6 +36,7 @@ import datetime
 import logging
 import shutil
 import textwrap
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -82,12 +83,16 @@ class _CliObserver:
             * ``0`` — AI-generated summary per episode; full dialog is
               collected in memory and can be written to a file via
               :meth:`write_log`.
+        max_episodes: Total episode count, used to print ``N / M`` in the
+            header.  ``0`` means unknown (header shows only ``N``).  Set
+            automatically by :func:`run_poc`.
         provider: LLM provider used to generate summaries at verbosity=0.
             Set automatically by :func:`run_poc` after the provider is
             resolved.  ``None`` produces a fallback "(no summarizer)" line.
     """
 
     verbosity: int = 1
+    max_episodes: int = 0
     provider: _Summarizable | None = None
     _width: int = field(default_factory=lambda: min(shutil.get_terminal_size().columns, 100))
     _episode_turns: list[Turn] = field(default_factory=list, init=False, repr=False)
@@ -95,6 +100,23 @@ class _CliObserver:
     _episode_start_env_state: dict[str, object] = field(
         default_factory=dict, init=False, repr=False
     )
+    # Timing
+    _episode_start_time: float = field(default=0.0, init=False, repr=False)
+    _session_start_time: float = field(default_factory=time.monotonic, init=False, repr=False)
+    # Model tracking (per-episode and session-level)
+    _episode_models: set[str] = field(default_factory=set, init=False, repr=False)
+    _default_model: str = field(default="", init=False, repr=False)
+    # model → [episode_count, prompt_tokens, completion_tokens]
+    _model_stats: dict[str, list[int]] = field(default_factory=dict, init=False, repr=False)
+    # Goal trend
+    _goal_met_count: int = field(default=0, init=False, repr=False)
+    _goal_check_count: int = field(default=0, init=False, repr=False)
+    # Separate episode counter so write_session_summary is accurate even when
+    # multiple models are used in the same episode (per-model stats would
+    # overcount if we summed them).
+    _total_episodes: int = field(default=0, init=False, repr=False)
+    # Saved for write_env_snapshot / write_session_summary
+    _final_state: SimulationState | None = field(default=None, init=False, repr=False)
 
     async def before_episode(
         self,
@@ -102,10 +124,18 @@ class _CliObserver:
         episode_index: int,
     ) -> ObserverDirective:
         self._episode_turns.clear()
+        self._episode_models.clear()
+        self._episode_start_time = time.monotonic()
         # Snapshot environment state now so after_episode can diff it.
         self._episode_start_env_state = dict(state.environment.state_snapshot())
-        rule = "─" * (self._width - 14 - len(str(episode_index + 1)))
-        header = f"\n{'─' * 3}  Episode {episode_index + 1}  {rule}"
+
+        # Episode counter: "Episode N / M" when total is known, "Episode N" otherwise.
+        ep_num = str(episode_index + 1)
+        ep_label = (
+            f"Episode {ep_num} / {self.max_episodes}" if self.max_episodes else f"Episode {ep_num}"
+        )
+        rule = "─" * max(0, self._width - 6 - len(ep_label))
+        header = f"\n{'─' * 3}  {ep_label}  {rule}"
         print(header)
         self._log_lines.append(header)
         return ObserverDirective.continue_()
@@ -116,6 +146,15 @@ class _CliObserver:
         turn: Turn,
     ) -> ObserverDirective:
         self._episode_turns.append(turn)
+
+        # Track model usage (use getattr for CoreTurn compat in tests).
+        model = getattr(turn, "model_used", "")
+        if model:
+            self._episode_models.add(model)
+            stats = self._model_stats.setdefault(model, [0, 0, 0])
+            stats[1] += getattr(turn, "prompt_tokens", 0)
+            stats[2] += getattr(turn, "completion_tokens", 0)
+
         party = state.get_party(turn.party_id)
         label = party.name
         if party.kind is PartyKind.ENVIRONMENT:
@@ -151,12 +190,36 @@ class _CliObserver:
         state: SimulationState,
         episode: object,
     ) -> ObserverDirective:
+        self._final_state = state
+
         if self.verbosity == 0:
             await self._print_episode_summary(state)
 
+        # Model notice + timing ------------------------------------------------
+        elapsed = time.monotonic() - self._episode_start_time
+        self._total_episodes += 1
+        # Increment per-model episode counter (tracks how many episodes each model ran).
+        for model in self._episode_models:
+            self._model_stats.setdefault(model, [0, 0, 0])[0] += 1
+
+        non_default = {m for m in self._episode_models if m and m != self._default_model}
+        timing_str = f"{elapsed:.1f}s"
+        if non_default:
+            model_label = ", ".join(sorted(non_default))
+            info_line = f"  ⚡ {model_label}  ·  {timing_str}"
+        else:
+            info_line = f"  ⏱ {timing_str}"
+        print(info_line)
+        self._log_lines.append(info_line)
+
+        # Goal check -----------------------------------------------------------
         if state.config.goal:
+            self._goal_check_count += 1
             status, met = await self._check_goal_progress(state)
-            goal_line = f"  ⊙ {status}"
+            if met:
+                self._goal_met_count += 1
+            tally = f"(met {self._goal_met_count} / {self._goal_check_count})"
+            goal_line = f"  ⊙ {status}  {tally}"
             print(goal_line)
             self._log_lines.append(goal_line)
             if met:
@@ -244,6 +307,37 @@ class _CliObserver:
     def write_log(self, path: Path) -> None:
         """Write the full dialog collected during the run to *path*."""
         path.write_text("\n".join(self._log_lines), encoding="utf-8")
+
+    def write_session_summary(self) -> None:
+        """Print a per-model usage table and total wall-clock duration."""
+        total_seconds = time.monotonic() - self._session_start_time
+        m, s = divmod(int(total_seconds), 60)
+        duration_str = f"{m}m {s:02d}s" if m else f"{total_seconds:.1f}s"
+
+        rule = "─" * max(0, self._width - 22)
+        print(f"\n{'─' * 3}  Session summary  {rule}")
+        print(f"  Episodes  : {self._total_episodes}")
+        print(f"  Duration  : {duration_str}")
+        if self._model_stats:
+            print("  Models")
+            for model, (eps, prompt_tok, comp_tok) in sorted(self._model_stats.items()):
+                print(f"    {model:<36}  {eps:>3} ep  {prompt_tok + comp_tok:>9,} tok")
+        print()
+
+    def write_env_snapshot(self) -> None:
+        """Print the final environment state as a labelled key-value block."""
+        if self._final_state is None:
+            return
+        snap = self._final_state.environment.state_snapshot()
+        rule = "─" * max(0, self._width - 30)
+        print(f"{'─' * 3}  Final environment state  {rule}")
+        if snap:
+            key_width = max(len(k) for k in snap) + 2
+            for k, v in snap.items():
+                print(f"  {k:<{key_width}} {v}")
+        else:
+            print("  (no state)")
+        print()
 
 
 # ---------------------------------------------------------------------------
@@ -389,9 +483,12 @@ async def run_poc(
         provider = _resolve_provider(provider_name)  # type: ignore[assignment]
 
     # Give the CLI observer access to the provider so it can generate
-    # AI summaries at verbosity=0.
+    # AI summaries at verbosity=0, and pass the total episode count and
+    # default model so it can render the counter and detect model switches.
     if isinstance(observer, _CliObserver):
         observer.provider = provider
+        observer.max_episodes = max_episodes
+        observer._default_model = getattr(provider, "default_model", "")
 
     engine = SimulationEngine(
         state=state, provider=provider, memory_store=memory_store, observer=observer
@@ -479,10 +576,12 @@ def main() -> None:
         )
     )
 
-    total_ep = ep_count
-    print(f"\n✓  Done — {total_ep} episode(s) complete\n")
+    # Post-run output ----------------------------------------------------------
+    observer.write_session_summary()
 
     if args.verbosity == 0:
+        observer.write_env_snapshot()
+
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = Path(f"roleplay_{ts}.log")
         observer.write_log(log_path)
