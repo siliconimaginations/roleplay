@@ -126,16 +126,24 @@ Uses the `google-genai` SDK. Model fallback chain (in order):
 
 ```python
 GEMINI_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash-lite",   # Free: 1 500 RPD, 1 M TPM, 15 RPM — highest free RPD
+    "gemini-3.1-flash-lite",   # Latest lite generation; separate quota bucket
+    "gemini-3.5-flash",        # Latest standard generation
+    "gemma-4-31b-it",          # Gemma 4 open-weight (31B dense), accessible via Gemini API;
+                               # entirely separate quota pool from Gemini models
 ]
 ```
 
-On a 429 or quota error from the current model, the provider moves to the next
-model in the chain with exponential backoff (see below). If all models are
-exhausted, raises `ProviderExhaustedError`.
+**Gemma 4** (`gemma-4-31b-it`) is Google's open-weight model (Apache 2.0,
+released April 2026) callable through the same `google-genai` SDK. Because it
+draws from a different quota pool than Gemini Flash models, it remains available
+even when all Gemini quotas are exhausted — making it a useful last-resort
+fallback. It is placed last in the chain because it is larger and slower than
+the Flash-family models.
+
+On a rate-limit error, the provider applies the multi-dimension, multi-cycle
+strategy described below. If all models across all cycles are exhausted, raises
+`ProviderExhaustedError`.
 
 ### ClaudeProvider
 
@@ -163,9 +171,21 @@ engine recovery paths.
 
 ## Rate Limit and Retry Strategy
 
-### Per-model exponential backoff
+### Rate limit dimensions
 
-When a model returns a rate-limit error:
+The Gemini API enforces three independent quota dimensions per model:
+
+| Dimension | Resets | Failure behaviour |
+|-----------|--------|-------------------|
+| **RPM** — requests per minute | Every minute | Wait for backoff, then retry |
+| **TPM** — tokens per minute (input) | Every minute | Wait for backoff, then retry |
+| **RPD** — requests per day | Midnight Pacific time | Move to next model immediately |
+
+The provider parses the 429 response body to determine which dimension was hit.
+RPD exhaustion means the model is unavailable for the rest of the day — waiting
+is futile, so the provider skips to the next model without backoff.
+
+### Per-model exponential backoff (RPM / TPM only)
 
 ```
 wait = min(base_delay × 2^attempt, max_delay) + jitter
@@ -175,26 +195,33 @@ Defaults:
 - `base_delay = 1.0` s
 - `max_delay = 60.0` s
 - `jitter = random.uniform(0, 0.5 × wait)`
-- `max_attempts_per_model = 3`
+- `max_attempts_per_model = 2` (before moving to the next model in the cycle)
 
-After `max_attempts_per_model` retries on one model, the provider moves to
-the next model in the chain (resetting the retry counter).
+### Multi-cycle fallback sequence
 
-### Model fallback sequence
+Rather than exhausting each model fully before moving on, the provider cycles
+through all models repeatedly. This gives the primary model a chance to recover
+(RPM/TPM limits reset within a minute) by the time the chain cycles back to it:
 
 ```
-Model 0 → [retry up to 3×] → Model 1 → [retry up to 3×] → … → ProviderExhaustedError
+Cycle 1: Model 0 → [≤2 RPM/TPM retries] → Model 1 → … → Model N
+Cycle 2: Model 0 → [≤2 RPM/TPM retries] → Model 1 → … → Model N
+Cycle 3: Model 0 → [≤2 RPM/TPM retries] → Model 1 → … → Model N
+→ ProviderExhaustedError
 ```
 
-The fallback chain is exhausted as a whole before raising. The engine does not
-implement its own retry loop — it relies entirely on the provider.
+Defaults: `max_cycles = 3`.
+
+RPD-exhausted models are skipped in all subsequent cycles (their quota will not
+recover before midnight). An RPM/TPM-limited model is retried in each new cycle
+because the per-minute window will likely have reset.
 
 ### Soft notice on exhaustion
 
 When `ProviderExhaustedError` is raised, the provider logs a structured warning
-including all attempted models and their last error codes. The engine surfaces
-this to the observer (via `after_episode`) and persists the open episode for
-resumption.
+with all attempted models, their failure dimensions (RPM/TPM/RPD), and error
+codes. The engine surfaces this to the observer (via `after_episode`) and
+persists the open episode for resumption.
 
 ---
 
@@ -283,28 +310,37 @@ requests a specific provider for a specific party (future extension).
    Encapsulating the loop in the provider keeps the engine SDK-agnostic.
 
 2. **Fallback goes fast-lite first for Gemini, small-first for Claude.**
-   Gemini's quota structure means the lite models have separate (often higher)
-   free-tier quota. Trying lite first minimises cost. Claude's quota is
-   typically model-tier based — haiku has higher quota than sonnet, which has
-   higher than opus — so small-first is also correct there.
+   Gemini's quota structure ties RPD most generously to Flash-Lite (1 500 RPD
+   on the free tier). Gemma 4 is last because it is slower and uses a
+   separate quota pool — it is most useful as a last resort. Claude's quota is
+   typically tier-based — Haiku has more headroom than Sonnet, which has more
+   than Opus — so small-first is correct there too.
 
-3. **`text` is never empty on success.**
+3. **Multi-cycle fallback instead of per-model exhaustion.**
+   RPM and TPM limits reset every minute. If all models are briefly saturated,
+   cycling through the full chain once takes less than a minute in practice,
+   so the primary model (Flash-Lite) is likely available again by cycle 2.
+   Three cycles give the system ~3 minutes of sustained retry coverage before
+   giving up. RPD-exhausted models are skipped in subsequent cycles because
+   their quota will not recover before midnight.
+
+4. **`text` is never empty on success.**
    The engine depends on `CompletionResponse.text` being a non-empty string to
    produce a turn. Making this an invariant of the provider response avoids
    null checks scattered across the engine.
 
-4. **JSON Schema validation of tool arguments before calling `fn()`.**
+5. **JSON Schema validation of tool arguments before calling `fn()`.**
    LLMs sometimes produce arguments that don't match the schema (wrong types,
    missing required fields). Validating before calling prevents surprising
    exceptions deep in tool implementations. The validation error is sent back
    to the LLM as a tool result so it can self-correct.
 
-5. **`max_tool_rounds = 5` hard cap.**
+6. **`max_tool_rounds = 5` hard cap.**
    Without a cap, a buggy tool or an LLM in a bad state could loop indefinitely.
    Five rounds is generous for any reasonable grounding task (search → refine →
    answer typically takes 1–3 rounds).
 
-6. **`ProviderRegistry` over dependency injection per party.**
+7. **`ProviderRegistry` over dependency injection per party.**
    A registry lets the engine retrieve the configured provider by name without
    knowing in advance how many providers are registered or which one is default.
    It also makes testing easy: replace the default in the registry with a mock.
@@ -315,8 +351,9 @@ requests a specific provider for a specific party (future extension).
 
 | Situation | Behaviour |
 |-----------|-----------|
-| 429 / quota error (single model) | Exponential backoff up to `max_attempts_per_model`, then next model |
-| All models exhausted | `ProviderExhaustedError` with `attempted_models` list |
+| 429 RPM or TPM (single model) | Exponential backoff up to `max_attempts_per_model`, then next model in cycle |
+| 429 RPD (single model) | Skip to next model immediately; model excluded from remaining cycles |
+| All models exhausted across all cycles | `ProviderExhaustedError` with `attempted_models` and failure dimensions |
 | Auth / API key error | `ProviderError` (non-retryable); propagates immediately |
 | Empty response from LLM | Provider retries once; if still empty, raises `ProviderError` |
 | Tool `fn()` raises | Error string returned to LLM as tool result; turn continues |
@@ -334,7 +371,10 @@ requests a specific provider for a specific party (future extension).
 - `MockProvider` returns queued responses in order
 - `MockProvider` raises `ProviderExhaustedError` on demand
 - Exponential backoff: verify wait times and attempt counts with mocked 429s
-- Model fallback: model 0 exhausted → model 1 called; all exhausted → `ProviderExhaustedError`
+- Model fallback (RPM/TPM): model 0 rate-limited → model 1 called in same cycle; cycles back to model 0 in cycle 2
+- Model fallback (RPD): model 0 RPD-exhausted → skipped in all subsequent cycles; not retried
+- Multi-cycle: primary model recovers after one cycle → succeeds on cycle 2
+- All cycles exhausted → `ProviderExhaustedError` with failure dimensions listed
 - Tool call loop: one tool call → result injected → final text returned
 - Tool call loop: `max_tool_rounds` exceeded → `ProviderError`
 - Tool `fn()` raises → error sent to LLM → LLM produces final text
