@@ -151,7 +151,7 @@ def get_filtered_diff(base_sha: str, head_sha: str) -> tuple[str, bool]:
         return "", False
 
     diff_result = subprocess.run(
-        ["git", "diff", f"{base_sha}...{head_sha}", "--"] + reviewable,
+        ["git", "diff", f"{base_sha}...{head_sha}", "--", *reviewable],
         capture_output=True,
         text=True,
         check=True,
@@ -187,7 +187,7 @@ def call_gemini(model_name: str, diff: str, truncated: bool) -> str:
         try:
             response = model.generate_content(prompt)
             return response.text
-        except ResourceExhausted as exc:
+        except ResourceExhausted:
             if attempt < MAX_RETRIES:
                 print(
                     f"[{model_name}] Rate limit hit (attempt {attempt}/{MAX_RETRIES}). "
