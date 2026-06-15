@@ -1,0 +1,171 @@
+"""GeminiProvider — calls Google Gemini with a model fallback chain."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+
+import httpx
+
+from roleplay.providers.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ProviderError,
+    ProviderExhaustedError,
+    ProviderRateLimitError,
+)
+
+logger = logging.getLogger(__name__)
+
+# Default fallback chain (fastest/cheapest → most capable)
+_DEFAULT_MODELS = (
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemma-3-27b-it",
+)
+
+# RPM/TPM rate-limit retry config
+_RATE_LIMIT_INITIAL_WAIT = 5.0  # seconds
+_RATE_LIMIT_MAX_WAIT = 60.0
+_RATE_LIMIT_MAX_RETRIES = 3
+
+
+@dataclass
+class GeminiProvider:
+    """Google Gemini provider with automatic model fallback.
+
+    On rate-limit (429 / RESOURCE_EXHAUSTED), retries the same model with
+    exponential backoff up to _RATE_LIMIT_MAX_RETRIES times, then skips to
+    the next model in the chain.  When all models are exhausted, raises
+    ProviderExhaustedError.
+    """
+
+    models: tuple[str, ...] = _DEFAULT_MODELS
+    api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
+    _session: object = field(default=None, init=False, repr=False)
+
+    @property
+    def default_model(self) -> str:
+        return self.models[0]
+
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        attempted: list[str] = []
+        for model in self.models:
+            result = await self._try_model(model, request, attempted)
+            if result is not None:
+                return result
+        raise ProviderExhaustedError(
+            f"All Gemini models exhausted: {attempted}",
+            attempted_models=attempted,
+        )
+
+    async def _try_model(
+        self,
+        model: str,
+        request: CompletionRequest,
+        attempted: list[str],
+    ) -> CompletionResponse | None:
+        """Attempt a single model with rate-limit retries. Returns None to skip."""
+        wait = _RATE_LIMIT_INITIAL_WAIT
+        for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                return await self._call(model, request)
+            except ProviderRateLimitError as exc:
+                attempted.append(model)
+                retry_after = exc.retry_after_seconds or wait
+                if attempt >= _RATE_LIMIT_MAX_RETRIES:
+                    logger.warning(
+                        "Gemini model %s rate-limited after %d retries, skipping.",
+                        model,
+                        _RATE_LIMIT_MAX_RETRIES,
+                    )
+                    return None
+                logger.info(
+                    "Gemini rate limit on %s (attempt %d/%d), waiting %.1fs",
+                    model,
+                    attempt + 1,
+                    _RATE_LIMIT_MAX_RETRIES,
+                    retry_after,
+                )
+                await asyncio.sleep(retry_after)
+                wait = min(wait * 2, _RATE_LIMIT_MAX_WAIT)
+            except ProviderError:
+                attempted.append(model)
+                return None
+        return None  # unreachable but satisfies mypy
+
+    async def _call(self, model: str, request: CompletionRequest) -> CompletionResponse:
+        """Make a single Gemini API call via httpx."""
+        if not self.api_key:
+            raise ProviderError("GEMINI_API_KEY not set")
+
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={self.api_key}"
+        )
+        gen_config: dict[str, object] = {
+            "maxOutputTokens": request.max_output_tokens,
+            "temperature": request.temperature,
+        }
+        if request.stop_sequences:
+            gen_config["stopSequences"] = list(request.stop_sequences)
+        body: dict[str, object] = {
+            "contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
+            "generationConfig": gen_config,
+        }
+
+        start = time.monotonic()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(url, json=body)
+
+        elapsed = time.monotonic() - start
+        logger.debug("Gemini %s → HTTP %d in %.2fs", model, resp.status_code, elapsed)
+
+        if resp.status_code == 429:
+            retry_after: float | None = None
+            try:
+                ra = resp.headers.get("retry-after")
+                if ra:
+                    retry_after = float(ra)
+            except ValueError:
+                pass
+            raise ProviderRateLimitError(
+                f"Gemini rate limit on {model}: {resp.text[:200]}",
+                retry_after_seconds=retry_after,
+            )
+
+        if resp.status_code >= 500:
+            raise ProviderError(
+                f"Gemini server error {resp.status_code} on {model}: {resp.text[:200]}"
+            )
+
+        if resp.status_code != 200:
+            raise ProviderError(f"Gemini error {resp.status_code} on {model}: {resp.text[:200]}")
+
+        data = resp.json()
+
+        # Check for RESOURCE_EXHAUSTED in response body (some Gemini errors come as 200+error)
+        if "error" in data:
+            err = data["error"]
+            status = err.get("status", "")
+            if status in ("RESOURCE_EXHAUSTED",):
+                raise ProviderRateLimitError(f"Gemini quota on {model}: {err.get('message', '')}")
+            raise ProviderError(f"Gemini API error on {model}: {err.get('message', data)}")
+
+        try:
+            candidate = data["candidates"][0]
+            text = candidate["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as exc:
+            raise ProviderError(f"Unexpected Gemini response shape: {data}") from exc
+
+        usage = data.get("usageMetadata", {})
+        return CompletionResponse(
+            text=text,
+            prompt_tokens=usage.get("promptTokenCount", 0),
+            completion_tokens=usage.get("candidatesTokenCount", 0),
+            model_used=model,
+        )
