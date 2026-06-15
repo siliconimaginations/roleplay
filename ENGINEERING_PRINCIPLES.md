@@ -13,15 +13,16 @@ The sequence is strict:
 ```
 Engineering design doc  (docs/engineering/<nn>-<module-name>.md)
         ↓ PR → review → merge
-Implementation
+Implementation + integration tests (in the same PR)
         ↓ PR → CI green → review → merge
-Integration tests (if not in implementation PR)
-        ↓ PR → CI green → merge
 ```
 
 - A design doc PR may be small — a few hundred words is enough if the design is clear.
 - Implementation PRs that arrive without a linked design doc are blocked, not reviewed.
 - If a design changes materially during implementation, update the design doc in the same PR.
+- Integration tests (tagged `@pytest.mark.integration`) are included in the same implementation PR, not a separate one. They are skipped in CI by default and run manually.
+
+> **Note on UX docs:** A UX design doc phase will be introduced when a web UI is added (Stage 8+). Until then, CLI interaction is covered directly in the engineering doc for the relevant module.
 
 ---
 
@@ -83,20 +84,12 @@ Follow Conventional Commits:
 ```
 Types: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`, `ci`
 
-Examples:
-```
-feat(party): add Party dataclass with persona and mutable state
-docs(engineering): add design doc for memory engine
-test(memory): add retrieval tests for episodic memory store
-ci: add mypy strict-mode check to PR workflow
-```
-
 ### Pull requests
 - One logical change per PR. Don't bundle unrelated fixes.
 - PR title follows the same Conventional Commits format.
 - Fill in the PR template (see `.github/PULL_REQUEST_TEMPLATE.md`).
 - PRs against `main` require: CI green + at least one review approval.
-- Keep PRs small enough to review in one sitting (aim for <400 lines changed; split larger work into sequential PRs).
+- Aim for < 400 lines changed. Python is concise — a complete module (domain + logic + tests) often fits in one PR. Don't force artificial splits; split only when a module has genuinely independent pieces.
 
 ### Branch protection on `main`
 
@@ -135,16 +128,16 @@ ci: add mypy strict-mode check to PR workflow
 
 | Layer | Tool | Coverage target |
 |-------|------|----------------|
-| Domain model (Party, Memory, Episode) | pytest | ≥ 90% |
-| Simulation engine (loop, orchestration) | pytest + mocks | ≥ 80% |
-| LLM provider adapters | pytest + mocks | ≥ 80% |
+| Domain model (Party, Memory, Episode) | pytest | >= 90% |
+| Simulation engine (loop, orchestration) | pytest + mocks | >= 80% |
+| LLM provider adapters | pytest + mocks | >= 80% |
 | Persistence layer | pytest (real SQLite) | key paths |
 | CLI | pytest + capsys | smoke tests |
 | Integration (real LLM APIs) | pytest -m integration | critical flows |
 
 Rules:
 - Tests live in `tests/` mirroring `src/roleplay/` structure.
-- Integration tests that call real LLM APIs are tagged `@pytest.mark.integration` and skipped in CI by default (`-m "not integration"`).
+- Integration tests that call real LLM APIs are tagged `@pytest.mark.integration` and skipped in CI by default (`-m "not integration"`). They are included in the same PR as the implementation they test.
 - A PR that reduces coverage without a documented reason is rejected.
 - Test names describe behaviour: `"memory_store returns recent episodes first"`, not `"test_memory_1"`.
 
@@ -159,9 +152,9 @@ src/roleplay/
 ├── core/          # Pure domain: Party, Environment, Episode, SimulationState
 ├── memory/        # Memory store: write, retrieve, compact, forget
 ├── engine/        # Simulation loop, episode orchestration, turn logic
-├── providers/     # LLM provider adapters (Gemini, Claude, …)
+├── providers/     # LLM provider adapters (Gemini, Claude, ...)
 ├── persistence/   # SQLite session storage, serialization
-├── api/           # REST API (added in later stage)
+├── api/           # REST API (added in Stage 8)
 └── cli.py         # CLI entry point
 ```
 
@@ -180,7 +173,7 @@ The simulation advances in discrete episodes. Each episode has a wall-clock time
 Memory is not a side effect of the simulation loop — it is a subsystem with its own read/write/compact/query API. The engine reads memory before each agent turn and writes new memories after. Compaction and forgetting are scheduled operations, not implicit truncation.
 
 ### Stateless API layer (future)
-When REST/WebSocket APIs are added, controllers will be stateless. All simulation state lives in the session (persisted to DB). This keeps the API layer testable and future-proof for scaling.
+When REST/WebSocket APIs are added (Stage 8), controllers will be stateless. All simulation state lives in the session (persisted to DB).
 
 ---
 
@@ -189,12 +182,12 @@ When REST/WebSocket APIs are added, controllers will be stateless. All simulatio
 Every PR must pass:
 1. **Lint**: `ruff check .` and `ruff format --check .`
 2. **Types**: `mypy src/` (strict mode)
-3. **Unit tests**: all non-integration tests green
-4. **Coverage**: ≥ 60% overall, ≥ 70% on changed files
+3. **Unit tests**: all non-integration tests green (`-m "not integration"`)
+4. **Coverage**: >= 60% overall, >= 70% on changed files
 
 CI failures block merge — no exceptions.
 
-Integration tests (`-m integration`) run manually or via `workflow_dispatch`, never as a required PR gate (they require API keys and incur cost).
+Integration tests (`-m integration`) run manually or via `workflow_dispatch`, never as a required PR gate.
 
 ---
 
@@ -229,34 +222,27 @@ Every PR is either **non-critical** or **critical**:
 | Type | Examples |
 |------|---------|
 | **Non-critical** | CI changes, tooling, coverage, linting, test fixes, doc updates, refactors within an approved design |
-| **Critical** | Architecture decisions, module API contracts, simulation loop design, memory model, LLM provider abstraction, new submodule design |
+| **Critical** | Architecture decisions, module API contracts, simulation loop design, memory model, LLM provider abstraction, new submodule design docs |
 
 ### Review workflow
 
 #### Non-critical PRs
 1. `nagasawa94` opens the PR. Rick is **not** assigned as reviewer.
-2. Claude polls every ~30 s for: all CI checks green · Gemini AI review present · no unresolved 🔴/🟠 Gemini issues.
-3. Minor Gemini suggestions (🟡) → add a `# TODO:` in code and open a GitHub issue to track. Do not block merge.
+2. Claude polls every ~30 s for: all CI checks green · Gemini AI review present · no unresolved critical/major Gemini issues.
+3. Minor Gemini suggestions -> add a `# TODO:` in code and open a GitHub issue. Do not block merge.
 4. Once all criteria are met, Claude merges autonomously and notifies Rick in chat.
 5. After merging, Claude checks the GitHub Projects board to determine the next task.
 
 #### Critical PRs
 1. `nagasawa94` opens the PR with `**PR Classification:** CRITICAL` in the description and assigns `siliconimaginations` as reviewer.
-2. Poll CI and Gemini; address ALL Gemini issues (critical/major/minor). Do not wait for Rick before fixing Gemini findings.
+2. Poll CI and Gemini; address ALL Gemini issues. Do not wait for Rick before fixing Gemini findings.
 3. Do **not** merge without Rick's explicit approval.
-4. **Do not sit idle while waiting.** Continue working on other WORK_PLAN tasks that are not blocked. If the next task depends on unmerged code, branch off the unreviewed branch and continue; rebase/merge once the blocking PR lands.
+4. **Do not sit idle while waiting.** Continue working on other WORK_PLAN tasks that are not blocked.
 
-#### Critical → Non-critical transition
+#### Critical -> Non-critical transition
+Rick signals by adding `_NCP` to the PR description or a review comment. Claude updates the classification and switches to autonomous merge flow.
 
-Rick signals a PR can become non-critical by adding `_NCP` to the PR description or a review comment.
-
-Claude's response:
-- **Agrees:** update the PR description to `**PR Classification:** NON_CRITICAL (_NCP)`, remove the assigned reviewer, and switch to autonomous merge flow.
-- **Disagrees** (unresolved architectural concern): keep it critical, flag the specific concern to Rick.
-
-#### Non-critical → Critical escalation
-
-If a major issue surfaces during a non-critical PR review:
+#### Non-critical -> Critical escalation
 - **Can be deferred:** open a GitHub issue, add `# TODO: #<issue>`, merge as non-critical.
 - **Must be fixed in this PR:** update to `CRITICAL`, assign Rick, notify in chat.
 
@@ -273,10 +259,9 @@ Claude applies the non-critical workflow and works autonomously through `WORK_PL
 
 #### Determining the next task
 
-After every merged PR, Claude must follow this sequence:
-
-1. Check the GitHub Projects board at `https://github.com/orgs/siliconimaginations/projects` (link updated once board is created).
-2. Take the highest-priority item in **This Sprint** that is not blocked. `priority/P0` items always take precedence.
+After every merged PR:
+1. Check the GitHub Projects board (link added once board is created).
+2. Take the highest-priority item in **This Sprint** that is not blocked. `priority/P0` always takes precedence.
 3. If the board is empty or all items are blocked, surface the situation to Rick.
 4. Announce the next planned task in chat before starting — Rick can override.
 
@@ -286,8 +271,8 @@ After every merged PR, Claude must follow this sequence:
 
 A feature is **done** when:
 - [ ] Design doc merged to `main`
-- [ ] Implementation PR approved and merged
-- [ ] CI passes (lint + types + tests)
+- [ ] Implementation PR approved and merged (includes integration tests)
+- [ ] CI passes (lint + types + unit tests)
 - [ ] Coverage targets met
 - [ ] No unresolved review comments
 - [ ] `WORK_PLAN.md` stage updated if the feature completed a stage milestone
@@ -296,23 +281,14 @@ A feature is **done** when:
 
 ## 11. PR Size Policy
 
-**Recommended**: < 400 lines changed (excluding generated files and lock files).
+**Aim for**: < 400 lines changed (excluding generated files and lock files).
 **Hard limit**: 1 000 lines changed. A PR exceeding this must be split before review starts.
 
-### How to split a large module
+Python is concise — a complete module (domain model + logic + tests) often fits comfortably in one PR. Split only when a module has genuinely independent pieces (e.g., persistence schema separate from query logic), not to hit an arbitrary line count.
 
-| PR | Contents | Approx. size |
-|----|----------|-------------|
-| 1 | Domain model + dataclasses + protocols | ≤ 200 lines |
-| 2 | Core logic / service layer | ≤ 300 lines |
-| 3 | Persistence / I/O layer | ≤ 200 lines |
-| 4 | Tests | ≤ 300 lines |
+When splitting is necessary, each PR in the sequence must pass CI and be merged before the next opens.
 
-Each PR in the sequence must pass CI and be merged before the next one opens.
-
-### Claude-specific rule
-
-Before starting implementation of any module, Claude must verify the total estimated line count against these limits and propose a split plan in chat if the estimate exceeds 400 lines.
+**Claude-specific rule**: before starting implementation of any module, estimate the total line count. If the estimate exceeds 400 lines, propose a split plan in chat before writing code.
 
 ---
 
@@ -327,9 +303,9 @@ Before starting implementation of any module, Claude must verify the total estim
 | `coverage` | Test coverage gap |
 | `docs` | Stale or missing documentation |
 | `ci` | Pipeline or tooling change |
-| `priority/P0` | **Urgent** — active breakage, data loss, security issue, or blocker; must be resolved immediately |
+| `priority/P0` | **Urgent** -- active breakage, data loss, security issue, or blocker; must be resolved immediately |
 | `priority/P1` | This sprint |
-| `priority/P2` | Next 1–2 sprints |
+| `priority/P2` | Next 1-2 sprints |
 | `priority/P3` | Backlog |
 
 **Coverage thresholds** (enforced in CI):
