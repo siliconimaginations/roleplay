@@ -167,8 +167,14 @@ class GeminiProvider:
         }
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=body)
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(url, json=body)
+        except httpx.TimeoutException as exc:
+            elapsed = time.monotonic() - start
+            raise ProviderError(
+                f"Gemini request timed out for {model} after {elapsed:.1f}s"
+            ) from exc
 
         elapsed = time.monotonic() - start
         logger.debug("Gemini %s → HTTP %d in %.2fs", model, resp.status_code, elapsed)
