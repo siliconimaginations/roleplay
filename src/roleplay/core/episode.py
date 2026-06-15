@@ -113,8 +113,20 @@ class Episode:
             )
         self.turns.append(turn)
 
-    def close(self, simulated_time_end: str) -> None:
+    def close(
+        self,
+        simulated_time_end: str,
+        *,
+        timestamp: datetime | None = None,
+    ) -> None:
         """Close this episode, recording the end simulated time.
+
+        Args:
+            simulated_time_end: The value of time.simulated after this
+                episode (set on the environment by the engine).
+            timestamp: Wall-clock time to record as ended_at.  Defaults
+                to datetime.now(UTC).  Pass an explicit value in tests to
+                avoid depending on system time.
 
         Raises:
             RuntimeError: If the episode is already closed.
@@ -122,7 +134,7 @@ class Episode:
         if self.ended_at is not None:
             raise RuntimeError(f"Episode {self.index} is already closed.")
         self.simulated_time_end = simulated_time_end
-        self.ended_at = datetime.now(UTC)
+        self.ended_at = timestamp if timestamp is not None else datetime.now(UTC)
 
     # ------------------------------------------------------------------
     # Accessors

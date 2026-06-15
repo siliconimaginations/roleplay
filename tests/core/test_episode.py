@@ -193,6 +193,20 @@ class TestEpisode:
         assert ep.total_tokens() == 15
         assert ep.is_complete()
 
+    def test_close_with_explicit_timestamp(self) -> None:
+        from datetime import UTC, datetime
+
+        ep = _open_episode()
+        ts = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
+        ep.close("end", timestamp=ts)
+        assert ep.ended_at == ts
+
+    def test_close_default_timestamp_is_utc(self) -> None:
+        ep = _open_episode()
+        ep.close("end")
+        assert ep.ended_at is not None
+        assert ep.ended_at.tzinfo is not None
+
 
 # ---------------------------------------------------------------------------
 # SimulationHistory
