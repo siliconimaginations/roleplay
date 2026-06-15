@@ -223,6 +223,53 @@ class TestGeminiProviderRateLimit:
         assert sleeps[0] == 30.0
 
 
+class TestGeminiProviderTimeout:
+    @pytest.fixture
+    def provider(self) -> GeminiProvider:
+        return GeminiProvider(models=("model-a", "model-b"), api_key="test-key")
+
+    async def test_read_timeout_raises_provider_error(self, provider: GeminiProvider) -> None:
+        """httpx.ReadTimeout from the HTTP layer must become ProviderError."""
+        with (
+            patch(
+                "httpx.AsyncClient.post",
+                new_callable=AsyncMock,
+                side_effect=httpx.ReadTimeout("timed out"),
+            ),
+            pytest.raises(ProviderError, match="timed out"),
+        ):
+            await provider._call("model-a", CompletionRequest(prompt="x"))
+
+    async def test_timeout_falls_through_to_next_model(self, provider: GeminiProvider) -> None:
+        """A timeout on model-a must not crash; model-b should be tried and succeed."""
+        ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            if "model-a" in url:
+                raise httpx.ReadTimeout("timed out")
+            return ok_resp
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post):
+            result = await provider.complete(CompletionRequest(prompt="x"))
+
+        assert result.model_used == "model-b"
+        assert result.text == "ok"
+
+    async def test_connect_timeout_also_raises_provider_error(
+        self, provider: GeminiProvider
+    ) -> None:
+        """httpx.ConnectTimeout (another TimeoutException subclass) must also be caught."""
+        with (
+            patch(
+                "httpx.AsyncClient.post",
+                new_callable=AsyncMock,
+                side_effect=httpx.ConnectTimeout("connect timeout"),
+            ),
+            pytest.raises(ProviderError, match="timed out"),
+        ):
+            await provider._call("model-a", CompletionRequest(prompt="x"))
+
+
 class TestGeminiProviderFallback:
     async def test_provider_error_skips_model(self) -> None:
         """Non-rate-limit error on model-a should skip to fallback."""
