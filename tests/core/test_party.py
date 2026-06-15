@@ -1,8 +1,8 @@
 """Tests for src/roleplay/core/party.py."""
+
 from __future__ import annotations
 
 import warnings
-from datetime import datetime, timezone
 
 import pytest
 
@@ -16,7 +16,6 @@ from roleplay.core.party import (
     make_person,
     validate_environment_state,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -139,7 +138,9 @@ class TestPartyConstruction:
 
     def test_persona_kwargs_forwarded(self) -> None:
         p = make_person(
-            "alice", "Alice", "desc",
+            "alice",
+            "Alice",
+            "desc",
             goals=("goal1",),
             traits=("brave",),
         )
@@ -165,9 +166,7 @@ class TestApplyStateUpdate:
 
     def test_multiple_keys(self) -> None:
         p = _alice()
-        changes = p.apply_state_update(
-            {"mood": "sad", "location": "home"}, episode_index=0
-        )
+        changes = p.apply_state_update({"mood": "sad", "location": "home"}, episode_index=0)
         assert len(changes) == 2
         assert p.state["mood"] == "sad"
         assert p.state["location"] == "home"
@@ -180,9 +179,7 @@ class TestApplyStateUpdate:
 
     def test_reason_recorded(self) -> None:
         p = _alice()
-        changes = p.apply_state_update(
-            {"mood": "excited"}, episode_index=2, reason="won award"
-        )
+        changes = p.apply_state_update({"mood": "excited"}, episode_index=2, reason="won award")
         assert changes[0].reason == "won award"
 
     def test_history_is_appended(self) -> None:
@@ -390,7 +387,5 @@ class TestValidateEnvironmentState:
     def test_make_environment_warns_on_bad_keys(self) -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            make_environment(
-                "w", "W", "desc", initial_state={"bad_key": "val"}
-            )
+            make_environment("w", "W", "desc", initial_state={"bad_key": "val"})
         assert any("bad_key" in str(w.message) for w in caught)
