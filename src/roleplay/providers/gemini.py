@@ -43,9 +43,8 @@ _DEFAULT_MODELS = (
     "gemma-4-31b-it",
 )
 
-# RPM/TPM rate-limit retry config
-_RATE_LIMIT_INITIAL_WAIT = 5.0  # seconds
-_RATE_LIMIT_MAX_WAIT = 60.0
+# Maximum number of RPM retries before a model is added to the session skip list.
+# Daily-quota (RPD) exhaustion skips immediately without retrying.
 _RATE_LIMIT_MAX_RETRIES = 3
 
 
@@ -107,7 +106,6 @@ class GeminiProvider:
           resets at midnight.  We skip immediately to the next model and add
           this one to the session skip list.
         """
-        wait = _RATE_LIMIT_INITIAL_WAIT
         for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
             try:
                 return await self._call(model, request)
@@ -116,6 +114,7 @@ class GeminiProvider:
                 retry_after = exc.retry_after_seconds
 
                 # No retry-after hint → daily quota exhausted; skip immediately.
+                # The quota resets at midnight so no amount of waiting helps.
                 if retry_after is None:
                     self._session_exhausted.add(model)
                     logger.warning(
@@ -124,6 +123,7 @@ class GeminiProvider:
                     )
                     return None
 
+                # retry-after set → RPM throttle; honour the hint.
                 if attempt >= _RATE_LIMIT_MAX_RETRIES:
                     self._session_exhausted.add(model)
                     logger.warning(
@@ -141,7 +141,6 @@ class GeminiProvider:
                     retry_after,
                 )
                 await asyncio.sleep(retry_after)
-                wait = min(wait * 2, _RATE_LIMIT_MAX_WAIT)
             except ProviderError:
                 attempted.append(model)
                 return None
