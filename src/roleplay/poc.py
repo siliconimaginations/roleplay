@@ -203,6 +203,8 @@ class _CliObserver:
         """Return a 1-2 sentence LLM summary of *dialog_text*, or a fallback string."""
         if self.provider is None:
             return "(no summarizer configured)"
+        if not dialog_text.strip():
+            return "(no dialog recorded this episode)"
         prompt = (
             "Summarize this roleplay episode in 1-2 sentences. "
             "Focus on what happened, any decisions or agreements reached, and key dynamics. "
@@ -212,7 +214,8 @@ class _CliObserver:
             resp = await self.provider.complete(
                 CompletionRequest(prompt=prompt, max_output_tokens=200)
             )
-            return str(resp.text).strip()
+            text = str(resp.text).strip()
+            return text or "(model returned empty summary)"
         except Exception as exc:
             logger.debug("Episode summary generation failed: %s", exc)
             return "(summary unavailable)"

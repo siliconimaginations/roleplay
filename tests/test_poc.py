@@ -485,3 +485,72 @@ class TestCliObserverGoal:
             await obs.after_episode(state, ep)
 
         assert any("⊙" in line for line in obs._log_lines)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Summarise robustness
+# ---------------------------------------------------------------------------
+
+
+class TestSummarize:
+    """_summarize must never silently produce invisible whitespace-only output."""
+
+    async def _make_obs_with_turns(self) -> tuple[object, object]:
+        """Return (state, obs) with one completed episode's turns loaded."""
+        from roleplay.poc import _CliObserver
+
+        cfg = SimulationConfig(session_id="summ-t", environment_reactive=False)
+        state = _build_state(cfg)
+        engine = SimulationEngine(
+            state=state, provider=_MockProvider(), memory_store=InMemoryStore()
+        )
+        obs = _CliObserver(verbosity=0)
+        obs._episode_start_env_state = {}  # type: ignore[attr-defined]
+        # Run one episode so _episode_turns is populated via after_turn
+        from io import StringIO
+        from unittest.mock import patch
+
+        with patch("sys.stdout", StringIO()):
+            await engine.run_episode()
+            ep = state.history.completed_episodes()[0]
+            for t in ep.turns:
+                await obs.after_turn(state, t)  # type: ignore[arg-type]
+        return state, obs
+
+    async def test_empty_provider_response_shows_placeholder(self) -> None:
+        """If the LLM returns empty text, a visible placeholder must be printed."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        state, obs = await self._make_obs_with_turns()
+
+        class _EmptyProvider:
+            async def complete(self, request: object) -> object:
+                from roleplay.providers.base import CompletionResponse
+
+                return CompletionResponse(text="", model_used="empty-model")
+
+        obs.provider = _EmptyProvider()  # type: ignore[attr-defined]
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs._print_episode_summary(state)  # type: ignore[attr-defined]
+        printed = buf.getvalue().strip()
+        assert printed, "Nothing was printed — whitespace-only output is a bug"
+        assert printed != "", "Empty summary must produce a visible fallback message"
+        assert "empty" in printed.lower() or "summary" in printed.lower()
+
+    async def test_empty_dialog_shows_placeholder(self) -> None:
+        """_summarize with no turns recorded must return a visible string, not ''."""
+        from roleplay.poc import _CliObserver
+
+        class _ShouldNotBeCalled:
+            async def complete(self, request: object) -> object:
+                raise AssertionError("provider called with empty dialog")
+
+        obs = _CliObserver(provider=_ShouldNotBeCalled())  # type: ignore[arg-type]
+        obs._episode_turns = []  # type: ignore[attr-defined]
+
+        # Call _summarize directly with empty dialog text
+        result = await obs._summarize("")  # type: ignore[attr-defined]
+        assert result.strip(), "_summarize returned empty/whitespace for empty dialog"
+        assert result != ""
