@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from roleplay.api.auth import require_api_key
+from roleplay.api.runner import RunStatusLiteral
 from roleplay.api.schemas import PartySchema, SessionDetail, SessionSummary
 from roleplay.persistence.base import SessionNotFoundError
 
@@ -20,19 +21,19 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 Auth = Annotated[None, Depends(require_api_key)]
 
 
-def _runner_store(request: Request) -> dict:
+def _runner_store(request: Request) -> dict[str, Any]:
     return request.app.state.runners  # type: ignore[no-any-return]
 
 
 def _layer(request: Request) -> PersistenceLayer:
-    return request.app.state.layer  # type: ignore[return-value]
+    return request.app.state.layer  # type: ignore[no-any-return]
 
 
-def _session_status(session_id: str, runners: dict) -> str:
+def _session_status(session_id: str, runners: dict[str, Any]) -> RunStatusLiteral:
     runner = runners.get(session_id)
     if runner is None:
         return "idle"
-    return runner.status  # type: ignore[no-any-return]
+    return cast(RunStatusLiteral, runner.status)
 
 
 def _parties_from_state(

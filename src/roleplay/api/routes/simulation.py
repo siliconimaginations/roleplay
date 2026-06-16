@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
 
@@ -28,11 +28,11 @@ def _get_runner(request: Request, session_id: str) -> SessionRunner:
     if runner is None:
         runner = SessionRunner(session_id)
         request.app.state.runners[session_id] = runner
-    return runner
+    return runner  # type: ignore[no-any-return]
 
 
 def _layer(request: Request) -> PersistenceLayer:
-    return request.app.state.layer  # type: ignore[return-value]
+    return request.app.state.layer  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ async def stream_session(
 
     # Access app state directly from the WebSocket scope
     _app_state = websocket.app.state
-    runners: dict = _app_state.runners
+    runners: dict[str, Any] = _app_state.runners
     if session_id not in runners:
         runners[session_id] = SessionRunner(session_id)
     runner = runners[session_id]

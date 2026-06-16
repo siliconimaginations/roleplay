@@ -16,7 +16,7 @@ from roleplay.engine.observer import ObserverDirective
 if TYPE_CHECKING:
     from roleplay.core.episode import Turn
     from roleplay.core.simulation_state import SimulationState
-    from roleplay.persistence.base import PersistenceLayer
+    from roleplay.persistence.sqlite import SqlitePersistenceLayer
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class SessionRunner:
     def start(
         self,
         state: SimulationState,
-        layer: PersistenceLayer,
+        layer: SqlitePersistenceLayer,
         n_episodes: int,
     ) -> None:
         """Spawn the background asyncio task."""
@@ -168,7 +168,7 @@ class SessionRunner:
     async def _run(
         self,
         state: SimulationState,
-        layer: PersistenceLayer,
+        layer: SqlitePersistenceLayer,
         n_episodes: int,
     ) -> None:
         from roleplay.engine.engine import SimulationEngine
@@ -182,7 +182,7 @@ class SessionRunner:
                 state=state,
                 provider=provider,
                 memory_store=memory_store,
-                observer=hook,
+                observer=hook,  # type: ignore[arg-type]
             )
             await engine.run(max_episodes=n_episodes)
 
