@@ -132,7 +132,7 @@ def validate_scenario(path: Path) -> ValidationResult:
     warnings.warn(
         f"{path}: TOML scenario files are deprecated. "
         "Please migrate to YAML format (see scenarios/example.yaml).",
-        DeprecationWarning,
+        UserWarning,
         stacklevel=2,
     )
     try:

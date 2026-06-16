@@ -8,7 +8,7 @@ import pytest
 
 from roleplay.validate import ValidationError, ValidationResult, validate_scenario
 
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -719,3 +719,63 @@ class TestEnvironmentStateValidation:
         r = validate_scenario(_write(tmp_path, toml))
         assert r.valid
         assert not any("time.current" in w for w in r.warnings)
+
+
+# ---------------------------------------------------------------------------
+# YAML scenario validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateYaml:
+    def test_valid_yaml_returns_success(self, tmp_path: Path) -> None:
+        """validate_scenario accepts .yaml files and returns a valid result."""
+        f = tmp_path / "scenario.yaml"
+        f.write_text(
+            "session_id: test-yaml\n"
+            "config:\n"
+            "  default_provider: mock\n"
+            "  max_episodes: 2\n"
+            "parties:\n"
+            "  - id: alice\n"
+            "    kind: person\n"
+            "    name: Alice\n"
+            "  - id: town\n"
+            "    kind: environment\n"
+            "    name: Riverside\n"
+            "    persona:\n"
+            "      description: A quiet town\n"
+            "      knowledge: []\n"
+        )
+        result = validate_scenario(f)
+        assert result.valid
+        assert result.party_count == 1  # environment excluded from count
+        assert result.provider == "mock"
+        assert result.episodes == 2
+
+    def test_invalid_yaml_returns_error(self, tmp_path: Path) -> None:
+        """validate_scenario captures YAML structural errors."""
+        f = tmp_path / "scenario.yaml"
+        f.write_text("parties: []\n")  # no parties, no environment
+        result = validate_scenario(f)
+        assert not result.valid
+        assert result.errors
+
+    def test_yaml_does_not_emit_deprecation_warning(self, tmp_path: Path) -> None:
+        """YAML path must not emit any deprecation/user warning."""
+        f = tmp_path / "scenario.yaml"
+        f.write_text(
+            "parties:\n"
+            "  - id: alice\n"
+            "    name: Alice\n"
+            "  - id: town\n"
+            "    kind: environment\n"
+            "    name: Town\n"
+            "    persona:\n"
+            "      description: a\n"
+            "      knowledge: []\n"
+        )
+        import warnings as _warnings
+
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("error")
+            validate_scenario(f)  # must not raise WarningMessage
