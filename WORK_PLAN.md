@@ -167,15 +167,15 @@ uv run python -m roleplay.poc [OPTIONS]
 | Mock provider (`--mock`) | #17 | No API key; scripted responses |
 | Verbosity 0: AI episode summaries | #29, #36 | One line per episode + env diff |
 | Verbosity 1: full dialog stream | #25 | Default; each turn printed in real time |
-| Verbosity 2: turn excerpts + AI summary | — | 80-char excerpt per turn + summary (planned #44) |
+| Verbosity 2: turn excerpts + AI summary | #57 | 80-char excerpt per turn + AI summary |
 | Episode counter `N / M` in header | #47 | Shows progress through total episode count |
 | Per-episode wall-clock timing `⏱` | #47 | Displayed after each episode |
 | Model-switch notice `⚡` | #47 | Shown when fallback model is used |
 | Goal tally `(goal achieved N / M ep)` | #47 | Running tally on ⊙ goal line |
 | Session summary (models, tokens, duration) | #47 | Printed after `engine.run()` returns |
 | Final env state snapshot | #47 | Printed in verbosity=0 mode |
-| Checkpoint resume | — | `.checkpoint.json` survives crashes (planned #46) |
-| `--watch` spinner | — | Dots to stderr during slow LLM calls (planned #45) |
+| Checkpoint resume | #57 | `.checkpoint.json` survives crashes (closes #46) |
+| `--watch` spinner | #57 | Dots to stderr during slow LLM calls (closes #45) |
 | TOML validator CLI | #23 | `python -m roleplay.validate scenarios/x.toml` |
 | Scenario format docs | #23, #53 | `docs/scenario-format.md`; AI-generation tips |
 
@@ -250,9 +250,9 @@ Expose the simulator as a service.
 | Issue | Title | Status |
 |-------|-------|--------|
 | #43 | Goal trend tally on ⊙ line | ✅ Shipped in PR #47 — close |
-| #44 | Verbosity=2 (excerpts + summary) | 🔲 Planned |
-| #45 | --watch spinner for slow LLM calls | 🔲 Planned |
-| #46 | Checkpoint resume | 🔲 Planned |
+| #44 | Verbosity=2 (excerpts + summary) | ✅ Shipped in PR #57 |
+| #45 | --watch spinner for slow LLM calls | ✅ Shipped in PR #57 |
+| #46 | Checkpoint resume | ✅ Shipped in PR #57 |
 
 ---
 
