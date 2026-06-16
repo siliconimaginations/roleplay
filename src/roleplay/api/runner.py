@@ -186,6 +186,10 @@ class SessionRunner:
             )
             await engine.run(max_episodes=n_episodes)
 
+            # Persist completed episodes to the database
+            for episode in state.history.completed_episodes():
+                await layer.save_episode(state.config.session_id, episode)
+
             if self.status == "running":
                 self.status = "done"
             await layer.save_state(state)

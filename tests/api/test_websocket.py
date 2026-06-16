@@ -143,3 +143,18 @@ class TestWebSocket:
             assert "simulation_complete" in types, f"Got: {types}"
         finally:
             cleanup()
+
+    def test_ws_auth_invalid_json_closes_with_error(self) -> None:
+        """WebSocket closes with auth error when first message is not valid JSON."""
+        app, cleanup = _setup_app(api_key="secret-key")
+        try:
+            with (
+                TestClient(app) as client,
+                client.websocket_connect("/sessions/test-session/stream") as ws,
+            ):
+                ws.send_text("not-valid-json!!!")
+                msg = json.loads(ws.receive_text())
+                assert msg["type"] == "error"
+                assert "Auth timeout" in msg["message"] or "invalid" in msg["message"].lower()
+        finally:
+            cleanup()
