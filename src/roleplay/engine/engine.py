@@ -341,9 +341,7 @@ class SimulationEngine:
             except _HaltSignalError:
                 break
             except ProviderExhaustedError as exc:
-                logger.warning(
-                    "All providers exhausted after %d episode(s): %s", count, exc
-                )
+                logger.warning("All providers exhausted after %d episode(s): %s", count, exc)
                 break
             count += 1
 

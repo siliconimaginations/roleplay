@@ -305,7 +305,7 @@ class _CliObserver:
             text = str(resp.text).strip()
             # Strip a leading "Answer:" echo in case the model repeats the anchor
             if text.lower().startswith("answer:"):
-                text = text[len("answer:"):].strip()
+                text = text[len("answer:") :].strip()
             return (text, text.lower().startswith("goal met:"))
         except Exception as exc:
             logger.debug("Goal progress check failed: %s", exc)
