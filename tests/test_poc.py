@@ -870,9 +870,7 @@ class TestVerbosity2:
             await run_poc(use_mock=True, max_episodes=1, observer=obs)
         output = buf.getvalue()
         non_header_lines = [
-            ln
-            for ln in output.splitlines()
-            if ln.strip() and "Episode" not in ln and "─" not in ln
+            ln for ln in output.splitlines() if ln.strip() and "Episode" not in ln and "─" not in ln
         ]
         assert len(non_header_lines) > 0, "verbosity=2 produced no non-header content"
 
