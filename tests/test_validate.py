@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from roleplay.validate import ValidationError, ValidationResult, validate_scenario
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -292,7 +292,7 @@ roleplay/
 ├── scenarios/          # Example scenario files
 └── docs/
     ├── engineering/    # Per-module design specs
-    └── scenario-format.md  # Extended TOML format reference
+    └── scenario-format.md  # YAML scenario format reference (AI-readable)
 ```
 
 ## Contributing

@@ -1,16 +1,13 @@
-"""Scenario configuration loader.
+"""Scenario TOML loader — **deprecated**.
 
-Reads a TOML file that describes parties, environment, simulation settings,
-and which LLM provider to use.  Also provides a helper for loading API keys
-from a local ``.env`` file so secrets never need to be committed to git.
+.. deprecated::
+   This module is used only by ``poc.py``, which has been superseded by the
+   Stage 7 CLI (``roleplay run <scenario.yaml>``).
+   For new scenarios use :mod:`roleplay.scenario_yaml` with a ``.yaml`` file.
+   This module will be removed when ``poc.py`` is retired.
 
-Typical usage::
-
-    from pathlib import Path
-    from roleplay.config import load_env_file, load_scenario
-
-    load_env_file(Path(".env"))                       # sets GEMINI_API_KEY etc.
-    state, provider_name, episodes = load_scenario(Path("scenarios/my.toml"))
+Also provides :func:`load_env_file` for loading API keys from a ``.env`` file;
+ that helper remains useful and is not deprecated.
 """
 
 from __future__ import annotations

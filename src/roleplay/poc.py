@@ -1,4 +1,12 @@
-"""Proof-of-concept scenario runner.
+"""Proof-of-concept scenario runner — **legacy**.
+
+.. deprecated::
+   ``poc.py`` is superseded by the Stage 7 CLI.  Use ``roleplay run`` instead::
+
+       uv run roleplay run scenarios/example.yaml
+
+   ``poc.py`` will be removed in a future release.  It continues to work with
+   existing ``.toml`` scenario files for now.
 
 Wires together all layers (core, memory, engine, providers) into a minimal
 end-to-end simulation.  Can run with a real LLM API key, a TOML scenario
