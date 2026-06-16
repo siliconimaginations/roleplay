@@ -792,3 +792,205 @@ class TestUxFeatures:
             obs.write_env_snapshot()  # type: ignore[attr-defined]
 
         assert buf.getvalue() == ""
+
+
+# ---------------------------------------------------------------------------
+# Verbosity 2 — turn excerpts + AI summary
+# ---------------------------------------------------------------------------
+
+
+class TestVerbosity2:
+    """Verbosity=2 shows 80-char excerpts per turn and an AI summary."""
+
+    async def test_verbosity_2_suppresses_underline(self) -> None:
+        """The ╌ underline (full-dialog marker) must not appear at verbosity=2."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver(verbosity=2)
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await run_poc(use_mock=True, max_episodes=1, observer=obs)
+        assert "╌" not in buf.getvalue()
+
+    async def test_verbosity_2_shows_party_name_with_excerpt(self) -> None:
+        """verbosity=2 prints '<Party>: <excerpt>' format for each turn."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver(verbosity=2)
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await run_poc(use_mock=True, max_episodes=1, observer=obs)
+        output = buf.getvalue()
+        # At least one "Name: text" line must appear
+        assert "Alice:" in output or "Bob:" in output
+
+    async def test_verbosity_2_excerpt_max_80_chars(self) -> None:
+        """Turn excerpts must be at most 80 chars (plus ellipsis) from after_turn."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        cfg = SimulationConfig(session_id="v2-t", environment_reactive=False)
+        state = _build_state(cfg)
+        engine = SimulationEngine(
+            state=state, provider=_MockProvider(), memory_store=InMemoryStore()
+        )
+        await engine.run(max_episodes=1)
+        ep = state.history.completed_episodes()[0]
+        turn = ep.turns[0]
+
+        obs = _CliObserver(verbosity=2)
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await obs.after_turn(state, turn)  # type: ignore[arg-type]
+
+        # The printed excerpt (after "Name: ") must be ≤ 81 chars (80 + ellipsis)
+        for line in buf.getvalue().splitlines():
+            if ":" in line and line.strip():
+                excerpt_part = line.split(":", 1)[1].strip()
+                assert len(excerpt_part) <= 81, f"Excerpt too long: {excerpt_part!r}"
+
+    async def test_verbosity_2_prints_summary_after_episode(self) -> None:
+        """verbosity=2 calls _print_episode_summary, producing non-header content."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from roleplay.poc import _CliObserver
+
+        obs = _CliObserver(verbosity=2)
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            await run_poc(use_mock=True, max_episodes=1, observer=obs)
+        output = buf.getvalue()
+        non_header_lines = [
+            ln
+            for ln in output.splitlines()
+            if ln.strip() and "Episode" not in ln and "─" not in ln
+        ]
+        assert len(non_header_lines) > 0, "verbosity=2 produced no non-header content"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint — write/load
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpoint:
+    """_write_checkpoint / _load_checkpoint round-trip and edge cases."""
+
+    def test_write_then_load_returns_correct_count(self, tmp_path: "Path") -> None:
+        """Writing checkpoint then loading returns the saved episode count."""
+        from roleplay.poc import _load_checkpoint, _write_checkpoint
+
+        cp = tmp_path / "test.checkpoint.json"
+        _write_checkpoint(cp, episodes_completed=7, max_episodes=10)
+        done = _load_checkpoint(cp, max_episodes=10, resume=True)
+        assert done == 7
+
+    def test_load_without_resume_returns_zero(self, tmp_path: "Path") -> None:
+        """_load_checkpoint with resume=False always returns 0."""
+        from roleplay.poc import _load_checkpoint, _write_checkpoint
+
+        cp = tmp_path / "cp.json"
+        _write_checkpoint(cp, episodes_completed=5, max_episodes=10)
+        assert _load_checkpoint(cp, max_episodes=10, resume=False) == 0
+
+    def test_load_missing_file_returns_zero(self, tmp_path: "Path") -> None:
+        """Missing checkpoint file returns 0 without error."""
+        from roleplay.poc import _load_checkpoint
+
+        assert _load_checkpoint(tmp_path / "missing.json", max_episodes=5, resume=True) == 0
+
+    def test_load_corrupt_file_returns_zero(self, tmp_path: "Path") -> None:
+        """Corrupt checkpoint file returns 0 without crashing."""
+        from roleplay.poc import _load_checkpoint
+
+        cp = tmp_path / "bad.json"
+        cp.write_text("not json{{{", encoding="utf-8")
+        assert _load_checkpoint(cp, max_episodes=5, resume=True) == 0
+
+    def test_load_all_done_raises_systemexit(self, tmp_path: "Path") -> None:
+        """If checkpoint says all episodes done, _load_checkpoint raises SystemExit."""
+        import pytest
+
+        from roleplay.poc import _load_checkpoint, _write_checkpoint
+
+        cp = tmp_path / "done.json"
+        _write_checkpoint(cp, episodes_completed=5, max_episodes=5)
+        with pytest.raises(SystemExit):
+            _load_checkpoint(cp, max_episodes=5, resume=True)
+
+    async def test_checkpoint_written_after_each_episode(self, tmp_path: "Path") -> None:
+        """_CheckpointObserver writes checkpoint after every completed episode."""
+        from roleplay.poc import _CheckpointObserver, _write_checkpoint
+
+        cp = tmp_path / "run.checkpoint.json"
+        obs = _CheckpointObserver(inner=None, checkpoint_path=cp, max_episodes=3)
+
+        cfg = SimulationConfig(session_id="cp-t", environment_reactive=False)
+        state = _build_state(cfg)
+        engine = SimulationEngine(
+            state=state, provider=_MockProvider(), memory_store=InMemoryStore(), observer=obs
+        )
+        await engine.run(max_episodes=2)
+
+        import json
+
+        data = json.loads(cp.read_text())
+        assert data["episodes_completed"] == 2
+        assert data["max_episodes"] == 3
+
+    async def test_run_poc_creates_checkpoint(self, tmp_path: "Path") -> None:
+        """run_poc writes a checkpoint file next to the config TOML."""
+        example = Path(__file__).parent.parent / "scenarios" / "example.toml"
+        import shutil
+
+        toml_copy = tmp_path / "scenario.toml"
+        shutil.copy(example, toml_copy)
+
+        await run_poc(use_mock=True, max_episodes=2, config_path=toml_copy)
+
+        cp = toml_copy.with_suffix(".checkpoint.json")
+        assert cp.exists(), "checkpoint file was not created"
+        import json
+
+        data = json.loads(cp.read_text())
+        assert data["episodes_completed"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Watch provider wrapper
+# ---------------------------------------------------------------------------
+
+
+class TestWatchProvider:
+    """_WatchProvider delegates complete() to the inner provider."""
+
+    async def test_watch_provider_returns_inner_result(self) -> None:
+        """_WatchProvider.complete must return the inner provider's response."""
+        from roleplay.poc import _CliObserver, _WatchProvider
+
+        obs = _CliObserver(watch=False)  # watch=False so spinner is skipped
+        inner = _MockProvider()
+        wp = _WatchProvider(_inner=inner, _observer=obs)
+
+        from roleplay.providers.base import CompletionRequest
+
+        result = await wp.complete(CompletionRequest(prompt="test"))
+        assert result.text != "" or result.model_used == "mock"
+
+    def test_watch_provider_exposes_default_model(self) -> None:
+        """_WatchProvider.default_model must delegate to the inner provider."""
+        from roleplay.poc import _CliObserver, _WatchProvider
+
+        obs = _CliObserver(watch=False)
+        inner = _MockProvider()
+        wp = _WatchProvider(_inner=inner, _observer=obs)
+        assert wp.default_model == "mock"

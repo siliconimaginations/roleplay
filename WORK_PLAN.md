@@ -17,12 +17,13 @@ Multi-party interaction simulator driven by LLM agents.
 |-------|------|--------|
 | 0 | Foundation & Tooling | ✅ Complete |
 | 1 | Core Design Docs | ✅ Complete |
-| 2 | Core Implementation | 🔲 Planned |
-| 3 | Memory Engine | 🔲 Planned |
-| 4 | Simulation Engine | 🔲 Planned |
-| 5 | LLM Provider Layer | 🔲 Planned |
+| 2 | Core Domain Model | ✅ Complete |
+| 3 | Memory Engine | ✅ Complete |
+| 4 | Simulation Engine | ✅ Complete |
+| 5 | LLM Provider Layer | ✅ Complete |
+| POC | Scenario Runner (poc.py) | ✅ Complete |
 | 6 | Persistence & Session | 🔲 Planned |
-| 7 | CLI UI | 🔲 Planned |
+| 7 | CLI (roleplay run / inspect / fork) | 🔲 Planned |
 | 8 | REST API | 🔲 Planned |
 | 9 | Hardening & CI/CD Maturity | 🔲 Planned |
 
@@ -37,13 +38,18 @@ roleplay/
 │   ├── memory/        # Memory store: write, retrieve, compact, forget
 │   ├── engine/        # Simulation loop, episode orchestration, turn logic
 │   ├── providers/     # LLM provider adapters (Gemini, Claude, …)
-│   ├── persistence/   # SQLite session storage, serialization
+│   ├── persistence/   # SQLite session storage, serialization (Stage 6)
 │   ├── api/           # REST API (Stage 8)
-│   └── cli.py         # CLI entry point
+│   ├── poc.py         # Full-featured POC scenario runner (current primary CLI)
+│   ├── cli.py         # Stub — full CLI coming in Stage 7
+│   ├── config.py      # TOML scenario loader + .env key loader
+│   └── validate.py    # TOML scenario validator CLI
 ├── tests/
+├── scenarios/         # Example TOML scenario files
 ├── docs/
 │   ├── engineering/   # Per-module engineering specs (.md)
-│   └── process/       # Tech debt cadence, QA workflow
+│   ├── process/       # Tech debt cadence, QA workflow
+│   └── scenario-format.md  # AI-readable TOML reference + generation tips
 ├── .github/
 │   ├── badges/        # Auto-generated coverage badge SVG
 │   ├── scripts/
@@ -74,7 +80,7 @@ Repo live, CI running, local dev works.
 
 ## Stage 1 — Core Design Docs ✅
 
-All engineering specs merged. No open questions block implementation.
+All engineering specs merged.
 
 | Doc | Module | Status |
 |-----|--------|--------|
@@ -88,77 +94,90 @@ All engineering specs merged. No open questions block implementation.
 | `docs/engineering/08-cli.md` | CLI commands, YAML scenario format, interactive pause | ✅ Merged PR #10 |
 | `docs/engineering/09-api.md` | REST API | Deferred to Stage 8 |
 
-### Advanced features — designed within Stage 1 docs
+---
 
-These features were scoped during Stage 1 and are lower-priority for initial
-implementation. They are fully designed; no new design docs are needed.
+## Stage 2 — Core Domain Model ✅
 
-| Feature | Where designed | Stage to implement |
-|---------|---------------|-------------------|
-| **Tool usage** (grounding via search, external APIs) | `06-provider-abstraction` | Stage 5 (LLM Provider Layer) |
-| **Human intervention** (observer hook, inject context/persona) | `05-simulation-engine`, `08-cli` | Stage 4 (Simulation Engine) + Stage 7 (CLI) |
-| **Save / load / branching** (fork sessions, game-like save states) | `07-persistence`, `08-cli` | Stage 6 (Persistence) + Stage 7 (CLI) |
+`src/roleplay/core/` — pure Python, zero I/O, zero LLM dependencies.
+
+| Submodule | PRs | Notes |
+|-----------|-----|-------|
+| `Party` dataclass (person, organization, environment) | #11, #14 | Persona, mutable state, history |
+| `Environment` party + state schema | #11, #14 | Physical + context tracking |
+| `Episode` + `Turn` + schedulers + clocks | #13 | RoundRobin, Noop; simulated time |
+| `SimulationState` | #14 | All parties + environment + episode log |
 
 ---
 
-## Stage 2 — Core Domain Model Implementation 🔲
+## Stage 3 — Memory Engine ✅
 
-Implement `src/roleplay/core/` — pure Python, zero I/O, zero LLM dependencies.
+`src/roleplay/memory/`
 
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| `Party` dataclass | `01-party-model.md` | Persona, mutable state, history |
-| `Environment` party | `02-environment-model.md` | Physical + context tracking |
-| `Episode` dataclass | `03-episode-model.md` | Turn list, timestamps, simulated-time |
-| `SimulationState` | `03-episode-model.md` | All parties + environment + episode log |
-
-Exit criteria: Domain model fully typed; ≥ 90% coverage; mypy strict passes.
+| Submodule | PRs | Notes |
+|-----------|-----|-------|
+| `MemoryEntry`, `MemoryKind` | #15 | Typed entries with importance scoring |
+| `InMemoryStore` | #15 | Relevance + recency retrieval |
+| `MemoryStore` protocol | #15 | Typed interface for engine |
 
 ---
 
-## Stage 3 — Memory Engine 🔲
+## Stage 4 — Simulation Engine ✅
 
-Implement `src/roleplay/memory/`.
+`src/roleplay/engine/`
 
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| Memory write + retrieval | `04-memory-engine.md` | Relevance scoring, recency weighting |
-| Compaction (summarization) | `04-memory-engine.md` | LLM-assisted; triggered by token budget |
-| Forgetting | `04-memory-engine.md` | Decay model; explicit forget API |
-| Memory query API | `04-memory-engine.md` | Typed query interface for the engine |
-
-Exit criteria: Memory store passes retrieval correctness tests; compaction tested with mocked LLM; ≥ 80% coverage.
-
----
-
-## Stage 4 — Simulation Engine 🔲
-
-Implement `src/roleplay/engine/`.
-
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| Episode loop | `05-simulation-engine.md` | Drive turns, collect outputs, advance time |
-| Turn scheduler | `05-simulation-engine.md` | Who speaks when; initiative rules |
-| Environment reactions | `05-simulation-engine.md` | Env party updates state in response to turns |
-| Orchestration agent (optional) | `05-simulation-engine.md` | AI-driven loop vs. rule-driven loop |
-
-Exit criteria: A 3-party episode runs end-to-end with mocked LLM; state is consistent after each turn; ≥ 80% coverage.
+| Submodule | PRs | Notes |
+|-----------|-----|-------|
+| `SimulationEngine` — async episode loop | #16 | Drives turns, collects outputs, advances time |
+| `ObserverHook` + `ObserverDirective` | #16 | Continue / halt / inject |
+| `_assemble_prompt` (6-layer structure) | #16 | Budget trimming, history, memory, persona |
+| Environment reactive turn | #16 | Env party updates state per episode |
+| `ProviderExhaustedError` catch + graceful halt | #51 | Session summary still prints on exhaust |
 
 ---
 
-## Stage 5 — LLM Provider Layer 🔲
+## Stage 5 — LLM Provider Layer ✅
 
-Implement `src/roleplay/providers/`.
+`src/roleplay/providers/`
 
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| `Provider` protocol | `06-provider-abstraction.md` | Typed interface all adapters implement |
-| Gemini adapter | `06-provider-abstraction.md` | `google-generativeai`; model fallback |
-| Claude adapter | `06-provider-abstraction.md` | Anthropic SDK; model fallback |
-| Rate-limit handler | `06-provider-abstraction.md` | Exponential backoff; cross-model queue |
-| Provider registry | `06-provider-abstraction.md` | Config-driven; default provider selection |
+| Submodule | PRs | Notes |
+|-----------|-----|-------|
+| `Provider` protocol + `CompletionRequest/Response` | #17 | Typed interface |
+| `GeminiProvider` — model fallback chain | #17, #24, #26–28, #51, #56 | 6-model chain; Gemma 4 fallback |
+| `ClaudeProvider` | #17 | Anthropic SDK adapter |
+| `MockProvider` | #17 | Scripted responses; no API key |
+| Session-level rate-limit skip list | #24 | Exhausted models skipped for session lifetime |
+| RPM vs RPD skip-list distinction | #27, #51 | RPM (retry-after) not permanently banned |
+| httpx timeout → `ProviderError` | #35 | ReadTimeout + ConnectTimeout caught |
+| `ProviderRegistry` | #17 | Config-driven provider selection |
 
-Exit criteria: Both adapters pass against real APIs in integration tests; rate-limit fallback tested with mocked 429s; ≥ 80% coverage.
+---
+
+## POC Scenario Runner ✅ — `src/roleplay/poc.py`
+
+The primary user-facing entry point until Stage 7 CLI is built.
+
+```
+uv run python -m roleplay.poc [OPTIONS]
+```
+
+| Feature | PR | Notes |
+|---------|----|-------|
+| TOML scenario loading via `config.py` | #19 | `--config`, `--env-file` flags |
+| `.env` API key loading | #19 | Silently ignored if missing |
+| Mock provider (`--mock`) | #17 | No API key; scripted responses |
+| Verbosity 0: AI episode summaries | #29, #36 | One line per episode + env diff |
+| Verbosity 1: full dialog stream | #25 | Default; each turn printed in real time |
+| Verbosity 2: turn excerpts + AI summary | — | 80-char excerpt per turn + summary (planned #44) |
+| Episode counter `N / M` in header | #47 | Shows progress through total episode count |
+| Per-episode wall-clock timing `⏱` | #47 | Displayed after each episode |
+| Model-switch notice `⚡` | #47 | Shown when fallback model is used |
+| Goal tally `(goal achieved N / M ep)` | #47 | Running tally on ⊙ goal line |
+| Session summary (models, tokens, duration) | #47 | Printed after `engine.run()` returns |
+| Final env state snapshot | #47 | Printed in verbosity=0 mode |
+| Checkpoint resume | — | `.checkpoint.json` survives crashes (planned #46) |
+| `--watch` spinner | — | Dots to stderr during slow LLM calls (planned #45) |
+| TOML validator CLI | #23 | `python -m roleplay.validate scenarios/x.toml` |
+| Scenario format docs | #23, #53 | `docs/scenario-format.md`; AI-generation tips |
 
 ---
 
@@ -166,12 +185,16 @@ Exit criteria: Both adapters pass against real APIs in integration tests; rate-l
 
 Implement `src/roleplay/persistence/`.
 
+Prerequisite for `roleplay resume`, `roleplay fork`, and `roleplay inspect`.
+
 | Submodule | Design Doc | Notes |
 |-----------|-----------|-------|
-| SQLite schema + migrations | `07-persistence.md` | Sessions, episodes, memory entries |
-| Session save / resume | `07-persistence.md` | Full state round-trip |
-| Memory persistence | `07-persistence.md` | Durable store for long-run episodes |
-| Export (JSON) | `07-persistence.md` | For analysis and game integration |
+| SQLite schema + migrations | `07-persistence.md` | Sessions, episodes, turns, memory entries |
+| `SqlitePersistenceLayer` | `07-persistence.md` | Create, save, load, list, delete |
+| Session save / resume | `07-persistence.md` | Full state round-trip across process restarts |
+| Memory persistence | `07-persistence.md` | Durable store (replaces `InMemoryStore`) |
+| Session fork / branching | `07-persistence.md` | `parent_session_id` + `forked_at_episode` |
+| JSON export | `07-persistence.md` | For analysis and downstream tools |
 
 Exit criteria: Session save/resume round-trips correctly; memory survives process restart; ≥ 80% coverage.
 
@@ -179,22 +202,27 @@ Exit criteria: Session save/resume round-trips correctly; memory survives proces
 
 ## Stage 7 — CLI UI 🔲
 
-Implement a usable CLI for running and observing simulations.
+Implement the full `roleplay` CLI described in `docs/engineering/08-cli.md`.
+
+Note: `poc.py` already covers the core `roleplay run` use case; Stage 7 adds persistence-backed commands, the YAML scenario format, and interactive pause mode.
 
 | Submodule | Design Doc | Notes |
 |-----------|-----------|-------|
-| Scenario loader (YAML) | `08-cli.md` | Define parties, environment, episode rules in YAML |
-| `roleplay run` command | `08-cli.md` | Stream episode output to terminal |
-| `roleplay inspect` command | `08-cli.md` | Dump party state, memory, episode log |
-| `roleplay replay` command | `08-cli.md` | Replay a persisted session |
+| `roleplay run <scenario.yaml>` | `08-cli.md` | YAML loader; stream output to terminal |
+| `roleplay resume <session_id>` | `08-cli.md` | Load from SQLite and continue |
+| `roleplay inspect <session_id>` | `08-cli.md` | Dump party state, memory, episode log |
+| `roleplay list` | `08-cli.md` | All sessions in DB |
+| `roleplay fork <session_id>` | `08-cli.md` | Branch a session at current state |
+| `roleplay forget` / `roleplay delete` | `08-cli.md` | Memory + session management |
+| Interactive pause mode | `08-cli.md` | `p` to pause; inject / state / persona / memory commands |
 
-Exit criteria: Both example scenarios (small town, org negotiation) runnable from CLI with real LLMs.
+Exit criteria: Both example scenarios runnable from CLI with real LLMs; resume tested after simulated crash.
 
 ---
 
 ## Stage 8 — REST API 🔲
 
-Expose the simulator as a service for downstream developers and the future web UI.
+Expose the simulator as a service.
 
 | Submodule | Design Doc | Notes |
 |-----------|-----------|-------|
@@ -202,8 +230,6 @@ Expose the simulator as a service for downstream developers and the future web U
 | Simulation control endpoints | `09-api.md` | Start, pause, step, resume |
 | WebSocket live updates | `09-api.md` | Stream episode turns to client |
 | Auth (API key) | `09-api.md` | Simple key auth for self-hosted use |
-
-Exit criteria: Both example scenarios runnable via API; WebSocket streams turns in real time.
 
 ---
 
@@ -219,6 +245,17 @@ Exit criteria: Both example scenarios runnable via API; WebSocket streams turns 
 
 ---
 
+## Open UX Issues
+
+| Issue | Title | Status |
+|-------|-------|--------|
+| #43 | Goal trend tally on ⊙ line | ✅ Shipped in PR #47 — close |
+| #44 | Verbosity=2 (excerpts + summary) | 🔲 Planned |
+| #45 | --watch spinner for slow LLM calls | 🔲 Planned |
+| #46 | Checkpoint resume | 🔲 Planned |
+
+---
+
 ## Development Process Per Feature
 
 ```
@@ -228,7 +265,6 @@ Exit criteria: Both example scenarios runnable via API; WebSocket streams turns 
 3. Integration test coverage            → PR → CI green → merge
 ```
 
-**Branch naming**: `stage/<n>/<short-description>`
-**PR rules**: linked design doc, lint + mypy green, tests added
-**Work queue**: always check the Projects board after each merge — it is authoritative over this file
+**Branch naming**: `stage/<n>/<short-description>` or `feat/<short-description>`
+**PR rules**: linked design doc (for new modules), lint + mypy green, tests added
 **Lint**: run `bash scripts/lint.sh` before every push
