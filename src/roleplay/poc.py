@@ -218,7 +218,7 @@ class _CliObserver:
             status, met = await self._check_goal_progress(state)
             if met:
                 self._goal_met_count += 1
-            tally = f"(met {self._goal_met_count} / {self._goal_check_count})"
+            tally = f"(goal achieved {self._goal_met_count} / {self._goal_check_count} ep)"
             goal_line = f"  ⊙ {status}  {tally}"
             print(goal_line)
             self._log_lines.append(goal_line)
@@ -269,9 +269,11 @@ class _CliObserver:
         if not dialog_text.strip():
             return "(no dialog recorded this episode)"
         prompt = (
-            "Summarize this roleplay episode in 1-2 sentences. "
-            "Focus on what happened, any decisions or agreements reached, and key dynamics. "
-            "Be specific and concise. No bullet points or headers.\n\n" + dialog_text
+            "You are summarizing a roleplay scene. "
+            "Write 1-2 sentences describing what happened, any decisions reached, "
+            "and key dynamics. Be specific and concise. "
+            "Output only the summary — no bullet points, no headers, no preamble.\n\n"
+            "Dialog:\n" + dialog_text + "\n\nSummary:"
         )
         try:
             resp = await self.provider.complete(
@@ -289,16 +291,21 @@ class _CliObserver:
             return ("(no provider — cannot evaluate goal)", False)
         dialog_text = self._build_dialog_text(state)
         prompt = (
-            f"Simulation goal: {state.config.goal}\n\n"
-            f"Episode dialog:\n{dialog_text}\n\n"
-            "In exactly one sentence, state whether this goal has been achieved. "
-            "Begin with 'Goal met:' if fully achieved, or 'Goal not yet met:' if not."
+            f"Goal: {state.config.goal}\n\n"
+            f"Dialog:\n{dialog_text}\n\n"
+            "Has the goal been fully achieved? "
+            "Reply with exactly one sentence. "
+            "Start with 'Goal met:' if yes, or 'Goal not yet met:' if no. "
+            "Output only that sentence — nothing else.\n\nAnswer:"
         )
         try:
             resp = await self.provider.complete(
                 CompletionRequest(prompt=prompt, max_output_tokens=80)
             )
             text = str(resp.text).strip()
+            # Strip a leading "Answer:" echo in case the model repeats the anchor
+            if text.lower().startswith("answer:"):
+                text = text[len("answer:") :].strip()
             return (text, text.lower().startswith("goal met:"))
         except Exception as exc:
             logger.debug("Goal progress check failed: %s", exc)

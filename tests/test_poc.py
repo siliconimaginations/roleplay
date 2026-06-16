@@ -675,7 +675,7 @@ class TestUxFeatures:
     # Goal tally
 
     async def test_goal_tally_increments_across_episodes(self) -> None:
-        """Goal tally '(met N / M)' increments correctly across multiple episodes."""
+        """Goal tally '(goal achieved N / M ep)' increments correctly across multiple episodes."""
         from io import StringIO
         from unittest.mock import patch
 
@@ -695,11 +695,11 @@ class TestUxFeatures:
             obs._final_state = state  # type: ignore[attr-defined]
             await obs.after_episode(state, ep)  # type: ignore[arg-type]
 
-        # After the second episode where goal is met: met 2 / 2
-        assert "(met 2 / 2)" in buf.getvalue()
+        # After the second episode where goal is met: achieved 2 / 2
+        assert "(goal achieved 2 / 2 ep)" in buf.getvalue()
 
     async def test_goal_tally_shows_zero_when_not_met(self) -> None:
-        """Goal tally shows 'met 0 / 1' when goal is not achieved."""
+        """Goal tally shows '(goal achieved 0 / 1 ep)' when goal is not achieved."""
         from io import StringIO
         from unittest.mock import patch
 
@@ -715,7 +715,7 @@ class TestUxFeatures:
         with patch("sys.stdout", buf):
             await obs.after_episode(state, ep)  # type: ignore[arg-type]
 
-        assert "(met 0 / 1)" in buf.getvalue()
+        assert "(goal achieved 0 / 1 ep)" in buf.getvalue()
 
     # ------------------------------------------------------------------
     # Session summary

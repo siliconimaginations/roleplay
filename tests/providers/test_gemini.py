@@ -332,6 +332,33 @@ class TestGeminiSessionSkipList:
         assert "model-a" in provider._session_exhausted
         assert "model-b" not in provider._session_exhausted
 
+    async def test_rpm_throttled_model_not_added_to_skip_list(self) -> None:
+        """RPM exhaustion (retry-after present) must NOT permanently ban a model.
+
+        Daily quota resets at midnight; we ban those permanently.
+        RPM limits reset within a minute; banning them wastes future episodes.
+        """
+        provider = GeminiProvider(models=("model-a", "model-b"), api_key="key")
+        rl_resp = httpx.Response(
+            429,
+            content=b'{"error": "quota"}',
+            headers={"retry-after": "5"},  # RPM — has a retry-after header
+        )
+        ok_resp = _http_resp(200, _make_ok_response("ok", "model-b"))
+
+        async def mock_post(url: str, **kwargs: object) -> httpx.Response:
+            return rl_resp if "model-a" in url else ok_resp
+
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await provider.complete(CompletionRequest(prompt="x"))
+
+        assert result.model_used == "model-b"
+        # model-a hit RPM limit — must NOT be in the session skip list
+        assert "model-a" not in provider._session_exhausted
+
     async def test_all_session_exhausted_raises_immediately(self) -> None:
         """All models in skip list → ProviderExhaustedError without any HTTP calls."""
         provider = GeminiProvider(models=("model-a", "model-b"), api_key="key")
