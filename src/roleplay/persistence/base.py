@@ -62,7 +62,7 @@ class SessionSummary:
 # ---------------------------------------------------------------------------
 
 
-class PersistenceLayer(Protocol):
+class PersistenceLayer(Protocol):  # pragma: no cover
     """Defines the contract for all persistence backends.
 
     The only concrete implementation in this package is SqlitePersistenceLayer.

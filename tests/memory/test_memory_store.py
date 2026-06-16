@@ -284,3 +284,92 @@ class TestInMemoryStoreStats:
     async def test_total_content_length_empty(self) -> None:
         store = InMemoryStore()
         assert await store.total_content_length("alice") == 0
+
+
+# ---------------------------------------------------------------------------
+# retrieve() branch coverage
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieveBranches:
+    async def test_retrieve_with_custom_weights(self) -> None:
+        """Exercises the weights != None branch in score_entry."""
+        store = InMemoryStore()
+        await store.write(_entry(content="unique alpha content"))
+        await store.write(_entry(content="something else"))
+        custom = {"alpha": 0.8, "beta": 0.1, "gamma": 0.05, "delta": 0.05}
+        results = await store.retrieve("alice", "alpha content", episode_index=1, weights=custom)
+        assert results[0].content == "unique alpha content"
+
+    async def test_retrieve_skips_forgotten_entries(self) -> None:
+        store = InMemoryStore()
+        e1 = _entry(content="visible")
+        e2 = _entry(content="gone")
+        e2.forgotten = True
+        await store.write(e1)
+        await store.write(e2)
+        results = await store.retrieve("alice", "visible", episode_index=0)
+        assert all(r.content != "gone" for r in results)
+
+    async def test_retrieve_updates_access_stats(self) -> None:
+        store = InMemoryStore()
+        e = _entry(content="check me")
+        await store.write(e)
+        assert e.access_count == 0
+        await store.retrieve("alice", "check", episode_index=3)
+        assert e.access_count == 1
+        assert e.last_accessed_episode == 3
+
+    async def test_retrieve_max_entries_limits_results(self) -> None:
+        store = InMemoryStore()
+        for i in range(10):
+            await store.write(_entry(content=f"item {i}"))
+        results = await store.retrieve("alice", "item", max_entries=3, episode_index=0)
+        assert len(results) <= 3
+
+    async def test_list_all_with_kinds_filter(self) -> None:
+        store = InMemoryStore()
+        await store.write(_entry(kind=MemoryKind.SEMANTIC, content="sem"))
+        await store.write(_entry(kind=MemoryKind.EPISODIC, content="epi"))
+        semantic_only = await store.list_all("alice", kinds=frozenset({MemoryKind.SEMANTIC}))
+        assert all(e.kind is MemoryKind.SEMANTIC for e in semantic_only)
+        assert len(semantic_only) == 1
+
+    async def test_list_all_no_kinds_returns_all(self) -> None:
+        store = InMemoryStore()
+        await store.write(_entry(kind=MemoryKind.SEMANTIC, content="s"))
+        await store.write(_entry(kind=MemoryKind.EPISODIC, content="e"))
+        all_entries = await store.list_all("alice")
+        assert len(all_entries) == 2
+
+    async def test_retrieve_empty_store_returns_empty(self) -> None:
+        store = InMemoryStore()
+        results = await store.retrieve("nobody", "query", episode_index=0)
+        assert results == []
+
+    async def test_list_all_empty_store_returns_empty(self) -> None:
+        store = InMemoryStore()
+        assert await store.list_all("nobody") == []
+
+
+# ---------------------------------------------------------------------------
+# score_entry — custom weights branch
+# ---------------------------------------------------------------------------
+
+
+class TestScoreEntryWeights:
+    def test_custom_weights_returns_float(self) -> None:
+        e = _entry(content="hello world", importance=0.5)
+        score = score_entry(e, "hello", current_episode_index=5, weights={"alpha": 1.0})
+        assert isinstance(score, float)
+
+    def test_none_weights_uses_defaults(self) -> None:
+        e = _entry(content="hello", importance=0.5)
+        score_default = score_entry(e, "hello", current_episode_index=5, weights=None)
+        score_custom = score_entry(
+            e,
+            "hello",
+            current_episode_index=5,
+            weights={"alpha": 0.5, "beta": 0.25, "gamma": 0.15, "delta": 0.10},
+        )
+        assert abs(score_default - score_custom) < 1e-9

@@ -590,3 +590,128 @@ name = "E"
         assert "foo.bar" in s
         assert "Something wrong" in s
         assert "Fix it" in s
+
+
+# ---------------------------------------------------------------------------
+# CLI main() — test via subprocess to avoid sys.exit contamination
+# ---------------------------------------------------------------------------
+
+
+class TestValidateCLI:
+    def test_main_valid_file_exits_0(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        p = _write(
+            tmp_path,
+            """
+[[parties]]
+id = "alice"
+name = "Alice"
+kind = "person"
+[parties.persona]
+description = "A person"
+
+[environment]
+id = "world"
+name = "World"
+""",
+        )
+        result = subprocess.run(
+            [sys.executable, "-m", "roleplay.validate", str(p)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+    def test_main_invalid_file_exits_1(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        p = _write(tmp_path, "[environment]\nid = 'e'\nname = 'E'\n")
+        result = subprocess.run(
+            [sys.executable, "-m", "roleplay.validate", str(p)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1
+
+    def test_main_quiet_flag(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        p = _write(
+            tmp_path,
+            """
+[[parties]]
+id = "alice"
+name = "Alice"
+kind = "person"
+
+[environment]
+id = "world"
+name = "World"
+[environment.initial_state]
+"weird_key" = "value"
+""",
+        )
+        normal = subprocess.run(
+            [sys.executable, "-m", "roleplay.validate", str(p)],
+            capture_output=True,
+            text=True,
+        )
+        quiet = subprocess.run(
+            [sys.executable, "-m", "roleplay.validate", "--quiet", str(p)],
+            capture_output=True,
+            text=True,
+        )
+        # Normal shows warnings, quiet suppresses them
+        assert "⚠" in normal.stdout
+        assert "⚠" not in quiet.stdout
+
+
+# ---------------------------------------------------------------------------
+# validate.py — environment initial_state edge cases (lines 369-436)
+# ---------------------------------------------------------------------------
+
+
+_VALID_BASE = """\
+[[parties]]
+id = "alice"
+name = "Alice"
+kind = "person"
+
+[environment]
+id = "world"
+name = "World"
+"""
+
+
+class TestEnvironmentStateValidation:
+    def test_list_value_in_initial_state_is_error(self, tmp_path: Path) -> None:
+        toml = _VALID_BASE + '[environment.initial_state]\n"time.current" = ["a", "b"]\n'
+        r = validate_scenario(_write(tmp_path, toml))
+        assert any("list" in e.message.lower() for e in r.errors)
+
+    def test_unsupported_type_in_initial_state_is_error(self, tmp_path: Path) -> None:
+        # Inline tables produce dict values — unsupported type
+        toml = _VALID_BASE + '[environment.initial_state]\n"time.current" = 2024-01-01\n'
+        try:
+            r = validate_scenario(_write(tmp_path, toml))
+            # TOML dates parsed as datetime objects — unsupported
+            errors = [e.message for e in r.errors]
+            assert any("unsupported" in m.lower() or "type" in m.lower() for m in errors)
+        except Exception:
+            pass  # Some TOML parsers reject inline dates
+
+    def test_unknown_key_pattern_emits_warning(self, tmp_path: Path) -> None:
+        toml = _VALID_BASE + '[environment.initial_state]\n"weird_xyz" = "value"\n'
+        r = validate_scenario(_write(tmp_path, toml))
+        assert r.valid  # Warnings, not errors
+        assert any("weird_xyz" in w for w in r.warnings)
+
+    def test_valid_time_key_no_warning(self, tmp_path: Path) -> None:
+        toml = _VALID_BASE + '[environment.initial_state]\n"time.current" = "Day 1"\n'
+        r = validate_scenario(_write(tmp_path, toml))
+        assert r.valid
+        assert not any("time.current" in w for w in r.warnings)

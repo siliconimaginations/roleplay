@@ -92,7 +92,7 @@ def score_entry(
 # ---------------------------------------------------------------------------
 
 
-class MemoryStore(Protocol):
+class MemoryStore(Protocol):  # pragma: no cover
     """Protocol for all memory store implementations."""
 
     async def write(self, entry: MemoryEntry) -> None: ...

@@ -597,3 +597,39 @@ class TestEdgeCases:
         state = _make_state()
         await layer.create_session(state)
         await layer.delete_memories("test-session", [])  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Error class tests (persistence/base.py)
+# ---------------------------------------------------------------------------
+
+
+class TestPersistenceErrors:
+    def test_session_not_found_message(self) -> None:
+        exc = SessionNotFoundError("abc-123")
+        assert "abc-123" in str(exc)
+        assert exc.session_id == "abc-123"
+
+    def test_session_not_found_is_persistence_error(self) -> None:
+        from roleplay.persistence.base import PersistenceError
+
+        exc = SessionNotFoundError("x")
+        assert isinstance(exc, PersistenceError)
+
+    def test_corrupted_session_error_message(self) -> None:
+        from roleplay.persistence.base import CorruptedSessionError
+
+        exc = CorruptedSessionError("bad row", entry_id="e1")
+        assert "bad row" in str(exc)
+        assert exc.entry_id == "e1"
+
+    def test_corrupted_session_error_no_entry_id(self) -> None:
+        from roleplay.persistence.base import CorruptedSessionError
+
+        exc = CorruptedSessionError("malformed")
+        assert exc.entry_id is None
+
+    def test_corrupted_session_is_persistence_error(self) -> None:
+        from roleplay.persistence.base import CorruptedSessionError, PersistenceError
+
+        assert isinstance(CorruptedSessionError("x"), PersistenceError)
