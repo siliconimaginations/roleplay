@@ -1,19 +1,22 @@
-"""Scenario TOML validator.
+"""Scenario validator — accepts YAML (preferred) and TOML (deprecated).
 
 Parses a scenario file and returns structured errors with actionable messages.
 Designed to be used directly and also to be AI-readable — error messages are
 written so that pasting them back to an AI assistant is enough to get a fix.
 
-Usage::
+YAML is the canonical format for new scenarios::
 
-    uv run python -m roleplay.validate scenarios/my-scenario.toml
-    uv run python -m roleplay.validate scenarios/*.toml
+    uv run python -m roleplay.validate scenarios/my-scenario.yaml
+    uv run python -m roleplay.validate scenarios/*.yaml
+
+TOML files are still accepted but deprecated — migrate to YAML.
 """
 
 from __future__ import annotations
 
 import sys
 import tomllib
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -79,7 +82,7 @@ def validate_scenario(path: Path) -> ValidationResult:
     entries so callers can format them however they like.
 
     Args:
-        path: Path to the ``.toml`` scenario file.
+        path: Path to the scenario file (``.yaml`` preferred; ``.toml`` deprecated).
     """
     result = ValidationResult(path=path)
 
@@ -94,7 +97,44 @@ def validate_scenario(path: Path) -> ValidationResult:
         )
         return result
 
-    # ── TOML parse ────────────────────────────────────────────────────────
+    # ── Parse: YAML (preferred) or TOML (deprecated) ─────────────────────
+    suffix = path.suffix.lower()
+    if suffix in {".yaml", ".yml"}:
+        try:
+            from roleplay.scenario_yaml import (
+                ValidationError as YAMLValidationError,
+            )
+            from roleplay.scenario_yaml import (
+                load_yaml_scenario,
+            )
+
+            scenario = load_yaml_scenario(path)
+            # Populate summary fields from the loaded scenario.
+            result.party_count = len(scenario.state.parties)
+            result.provider = scenario.provider_name
+            result.episodes = scenario.max_episodes or 0
+            return result
+        except YAMLValidationError as exc:
+            for msg in exc.errors:
+                result.errors.append(ValidationError(field="yaml", message=msg, hint=""))
+            return result
+        except Exception as exc:
+            result.errors.append(
+                ValidationError(
+                    field="yaml",
+                    message=f"Invalid YAML: {exc}",
+                    hint="Validate with: uv run python -m roleplay.validate <file>.yaml",
+                )
+            )
+            return result
+
+    # TOML — deprecated; still supported for backwards compatibility
+    warnings.warn(
+        f"{path}: TOML scenario files are deprecated. "
+        "Please migrate to YAML format (see scenarios/example.yaml).",
+        UserWarning,
+        stacklevel=2,
+    )
     try:
         with path.open("rb") as f:
             data: dict[str, Any] = tomllib.load(f)
@@ -392,22 +432,22 @@ def _check_initial_state(state: dict[str, Any], result: ValidationResult) -> Non
 
 
 def main() -> None:
-    """Validate one or more scenario TOML files.
+    """Validate one or more scenario files (YAML preferred, TOML deprecated).
 
     Exit code: 0 if all files are valid, 1 if any have errors.
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Validate a Roleplay scenario TOML file.",
-        epilog="See docs/scenario-format.md for the full schema.",
+        description="Validate a Roleplay scenario file (YAML preferred; TOML deprecated).",
+        epilog="See scenarios/example.yaml for the full schema.",
     )
     parser.add_argument(
         "files",
         nargs="+",
         metavar="FILE",
         type=Path,
-        help="Path(s) to .toml scenario file(s)",
+        help="Path(s) to .yaml (preferred) or .toml (deprecated) scenario file(s).",
     )
     parser.add_argument(
         "--quiet",

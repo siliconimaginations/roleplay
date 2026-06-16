@@ -1,0 +1,107 @@
+# Roleplay scenario configuration
+# ================================
+# Copy this file, rename it, and edit to define your own simulation.
+# Private copies ending in .local.yaml are gitignored.
+#
+# Run with:
+#   uv run roleplay run scenarios/example.yaml
+#   uv run roleplay run scenarios/example.yaml --provider mock
+#   uv run roleplay run scenarios/example.yaml --provider gemini
+
+# Optional: human-readable description of this scenario
+description: "Alice (negotiator) meets Bob (entrepreneur) at a trade fair"
+
+# Unique session ID. Omit to auto-generate a UUID.
+session_id: "example-001"
+
+# ---------------------------------------------------------------------------
+# Simulation settings
+# ---------------------------------------------------------------------------
+config:
+  default_provider: gemini       # gemini | claude | mock
+  max_episodes: 3
+  context_window_episodes: 5
+  memory_max_entries: 20
+  environment_reactive: true     # environment party gets its own turn each episode
+  goal: "Alice commits to the modular deployment deal without needing further approval"
+
+# ---------------------------------------------------------------------------
+# Turn scheduler (optional — defaults to round_robin)
+# ---------------------------------------------------------------------------
+# scheduler:
+#   kind: round_robin            # round_robin | random_order | fixed
+#
+# Fixed order example:
+# scheduler:
+#   kind: fixed
+#   order: [alice, bob]
+#
+# Random order with seed (reproducible):
+# scheduler:
+#   kind: random_order
+#   seed: 42
+
+# ---------------------------------------------------------------------------
+# Simulated clock (optional — defaults to noop / no time progression)
+# ---------------------------------------------------------------------------
+# clock:
+#   kind: formatted_increment
+#   unit: hours                  # seconds | minutes | hours | days | weeks
+#   amount: 2
+#   format: "%Y-%m-%d %H:%M"
+
+# ---------------------------------------------------------------------------
+# Parties — people, organisations, and the environment
+# ---------------------------------------------------------------------------
+parties:
+  - id: alice
+    kind: person                 # person | organization | environment
+    name: Alice
+    persona:
+      description: "A pragmatic negotiator who values clear outcomes"
+      goals:
+        - "Reach a fair agreement"
+        - "Preserve the long-term relationship"
+      traits:
+        - calm
+        - strategic
+        - direct
+      knowledge:
+        - "Experienced in conflict resolution"
+        - "Familiar with local market rates"
+      constraints:
+        - "Must stay within the approved budget"
+        - "Cannot make binding commitments without sign-off"
+
+  - id: bob
+    kind: person
+    name: Bob
+    persona:
+      description: "An optimistic entrepreneur with a strong product vision"
+      goals:
+        - "Secure funding or partnership"
+        - "Build credibility in the market"
+      traits:
+        - enthusiastic
+        - creative
+        - risk-tolerant
+      knowledge:
+        - "Has a working product prototype"
+        - "Understands the technical stack deeply"
+      constraints:
+        - "Limited runway — approximately 6 months of cash remaining"
+
+  - id: town
+    kind: environment
+    name: Riverside Town
+    persona:
+      description: "A small riverside town in early autumn, known for its trade fairs"
+      knowledge:
+        - "The annual trade fair opens in two weeks"
+        - "Economic sentiment in the region is cautiously optimistic"
+        - "The town council recently approved a small-business grant programme"
+    # State keys must match the dot-prefix schema: time.*, weather.*, event.*, location.*
+    state:
+      "time.simulated": "Day 1, Morning"
+      "weather.condition": "clear"
+      "event.mood": "cautious optimism"

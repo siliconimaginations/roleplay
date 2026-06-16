@@ -42,14 +42,14 @@ roleplay/
 │   ├── api/           # REST API (Stage 8)
 │   ├── poc.py         # Full-featured POC scenario runner (current primary CLI)
 │   ├── cli.py         # Full CLI (Stage 7) — run/resume/inspect/list/fork/forget/delete
-│   ├── config.py      # TOML scenario loader + .env key loader
-│   └── validate.py    # TOML scenario validator CLI
+│   ├── config.py      # TOML scenario loader (deprecated — use scenario_yaml.py)
+│   └── validate.py    # Scenario validator CLI (YAML preferred, TOML deprecated)
 ├── tests/
-├── scenarios/         # Example TOML scenario files
+├── scenarios/         # Example scenario files (YAML)
 ├── docs/
 │   ├── engineering/   # Per-module engineering specs (.md)
 │   ├── process/       # Tech debt cadence, QA workflow
-│   └── scenario-format.md  # AI-readable TOML reference + generation tips
+│   └── scenario-format.md  # AI-readable YAML reference + generation tips
 ├── .github/
 │   ├── badges/        # Auto-generated coverage badge SVG
 │   ├── scripts/
