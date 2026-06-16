@@ -35,10 +35,10 @@ logger = logging.getLogger(__name__)
 #   gemma-4-26b-a4b-it    1500 RPD   very generous quota
 #   gemma-4-31b-it        1500 RPD   largest open model
 _DEFAULT_MODELS = (
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
     "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemma-4-26b-a4b-it",
     "gemma-4-31b-it",
 )
