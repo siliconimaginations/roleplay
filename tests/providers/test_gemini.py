@@ -21,10 +21,10 @@ from roleplay.providers.gemini import (
     GeminiProvider,
 )
 
-_FLASH_LITE = "gemini-2.5-flash-lite"
+_DEFAULT_MODEL = _DEFAULT_MODELS[0]
 
 
-def _make_ok_response(text: str = "Hello!", model: str = _FLASH_LITE) -> dict[str, Any]:
+def _make_ok_response(text: str = "Hello!", model: str = _DEFAULT_MODEL) -> dict[str, Any]:
     return {
         "candidates": [{"content": {"parts": [{"text": text}]}}],
         "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
@@ -57,7 +57,7 @@ class TestGeminiProviderSuccess:
         assert result.text == "Hi there"
         assert result.prompt_tokens == 10
         assert result.completion_tokens == 5
-        assert result.model_used == _FLASH_LITE
+        assert result.model_used == _DEFAULT_MODEL
 
     async def test_default_model_is_first(self, provider: GeminiProvider) -> None:
         assert provider.default_model == _DEFAULT_MODELS[0]
@@ -79,7 +79,7 @@ class TestGeminiProviderSuccess:
     async def test_missing_api_key_raises(self) -> None:
         provider = GeminiProvider(api_key="")
         with pytest.raises(ProviderError, match="GEMINI_API_KEY"):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
     async def test_500_raises_provider_error(self, provider: GeminiProvider) -> None:
         resp = _http_resp(500, {"error": "server error"})
@@ -87,7 +87,7 @@ class TestGeminiProviderSuccess:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp),
             pytest.raises(ProviderError, match="server error"),
         ):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
     async def test_non_200_non_429_raises(self, provider: GeminiProvider) -> None:
         resp = _http_resp(403, {"error": "forbidden"})
@@ -95,7 +95,7 @@ class TestGeminiProviderSuccess:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp),
             pytest.raises(ProviderError, match="403"),
         ):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
     async def test_malformed_response_raises(self, provider: GeminiProvider) -> None:
         resp = _http_resp(200, {"candidates": []})
@@ -103,7 +103,7 @@ class TestGeminiProviderSuccess:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp),
             pytest.raises(ProviderError, match="Unexpected"),
         ):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
     async def test_resource_exhausted_in_200_body(self, provider: GeminiProvider) -> None:
         resp = _http_resp(200, _make_error_response("RESOURCE_EXHAUSTED"))
@@ -111,7 +111,7 @@ class TestGeminiProviderSuccess:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp),
             pytest.raises(ProviderRateLimitError),
         ):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
     async def test_other_error_in_body_raises_provider_error(
         self, provider: GeminiProvider
@@ -121,7 +121,7 @@ class TestGeminiProviderSuccess:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp),
             pytest.raises(ProviderError, match="bad prompt"),
         ):
-            await provider._call(_FLASH_LITE, CompletionRequest(prompt="x"))
+            await provider._call(_DEFAULT_MODEL, CompletionRequest(prompt="x"))
 
 
 class TestGeminiProviderRateLimit:
@@ -273,15 +273,15 @@ class TestGeminiProviderTimeout:
 class TestGeminiProviderFallback:
     async def test_provider_error_skips_model(self) -> None:
         """Non-rate-limit error on model-a should skip to fallback."""
-        provider = GeminiProvider(models=("bad-model", _FLASH_LITE), api_key="key")
-        ok_resp = _http_resp(200, _make_ok_response("fallback ok", _FLASH_LITE))
+        provider = GeminiProvider(models=("bad-model", _DEFAULT_MODEL), api_key="key")
+        ok_resp = _http_resp(200, _make_ok_response("fallback ok", _DEFAULT_MODEL))
 
         async def mock_post(url: str, **kwargs: object) -> httpx.Response:
             return _http_resp(400, {"error": "model not found"}) if "bad-model" in url else ok_resp
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=mock_post):
             result = await provider.complete(CompletionRequest(prompt="x"))
-        assert result.model_used == _FLASH_LITE
+        assert result.model_used == _DEFAULT_MODEL
 
     async def test_custom_models_tuple(self) -> None:
         provider = GeminiProvider(models=("my-model",), api_key="key")
