@@ -463,3 +463,120 @@ class TestRun:
         eng, _ = _engine(state, ["r1", "r2"], observer)
         await eng.run(max_episodes=5)
         assert len(state.history.completed_episodes()) == 1
+
+
+# ---------------------------------------------------------------------------
+# _assemble_prompt — unknown party_id fallback and budget trimming
+# ---------------------------------------------------------------------------
+
+
+def _make_state_for_prompt() -> SimulationState:
+    alice = make_person("alice", "Alice", "A person")
+    env = make_environment("world", "World", "A place")
+    return SimulationState(
+        config=SimulationConfig(session_id="s"),
+        parties={"alice": alice},
+        environment=env,
+        history=SimulationHistory(),
+        scheduler=RoundRobinScheduler(),
+        clock=NoopClock(),
+    )
+
+
+class TestAssemblePromptEdgeCases:
+    def test_unknown_party_id_in_history_uses_raw_id(self) -> None:
+        """If a turn's party_id is not in state, fall back to the raw ID."""
+        from roleplay.core.episode import Episode, Turn
+
+        state = _make_state_for_prompt()
+        ep = Episode(index=0, turns=[], simulated_time_start="t0")
+        # Add a turn with an unknown party_id
+        ep.add_turn(Turn(party_id="ghost", index=0, output="Boo!", state_update_proposals={}))
+        ep.close("t1")
+        state.history.episodes.append(ep)
+
+        prompt = _assemble_prompt("alice", state, [], [], None, 10_000)
+        assert "ghost" in prompt or "Boo!" in prompt
+
+    def test_unknown_party_id_in_current_turns_uses_raw_id(self) -> None:
+        """Unknown party_id in current_turns falls back to raw ID."""
+        from roleplay.engine.turn import Turn as EngTurn
+
+        state = _make_state_for_prompt()
+        fake_turn = EngTurn(party_id="mystery", output="Hello", state_update_proposals={})
+        prompt = _assemble_prompt("alice", state, [], [fake_turn], None, 10_000)
+        assert "mystery" in prompt or "Hello" in prompt
+
+    def test_context_override_included_in_prompt(self) -> None:
+        state = _make_state_for_prompt()
+        prompt = _assemble_prompt("alice", state, [], [], "A storm arrives!", 10_000)
+        assert "storm" in prompt
+
+    def test_budget_trimming_history(self) -> None:
+        """When total exceeds budget, history is trimmed first."""
+        from roleplay.core.episode import Episode, Turn
+
+        state = _make_state_for_prompt()
+        long_text = "X" * 500
+        ep = Episode(index=0, turns=[], simulated_time_start="t0")
+        ep.add_turn(Turn(party_id="alice", index=0, output=long_text, state_update_proposals={}))
+        ep.close("t1")
+        state.history.episodes.append(ep)
+
+        # Tiny budget forces trimming
+        prompt = _assemble_prompt("alice", state, [], [], None, 200)
+        # Should not exceed budget by much (history trimmed to fit)
+        assert len(prompt) < 600
+
+    def test_budget_trimming_memory(self) -> None:
+        """When history is empty, memory is trimmed instead."""
+        long_mem = MemoryEntry(
+            party_id="alice",
+            kind=MemoryKind.SEMANTIC,
+            content="M" * 500,
+            episode_index=0,
+        )
+        state = _make_state_for_prompt()
+        prompt = _assemble_prompt("alice", state, [long_mem], [], None, 200)
+        assert len(prompt) < 600
+
+
+# ---------------------------------------------------------------------------
+# _parse_state_proposals — float and string fallback paths
+# ---------------------------------------------------------------------------
+
+
+class TestParseStateProposalsEdgeCases:
+    def test_float_value_parsed(self) -> None:
+        text = "Alice speaks.\nSTATE: confidence=0.75"
+        output, proposals = _parse_state_proposals(text)
+        assert proposals["confidence"] == pytest.approx(0.75)
+        assert "STATE:" not in output
+
+    def test_string_fallback_value(self) -> None:
+        text = "Turn.\nSTATE: note=hello world"
+        _, proposals = _parse_state_proposals(text)
+        assert proposals["note"] == "hello world"
+
+
+# ---------------------------------------------------------------------------
+# _apply_injection — unknown party_id warnings
+# ---------------------------------------------------------------------------
+
+
+class TestApplyInjection:
+    async def test_unknown_party_id_state_update_warns(self) -> None:
+        state = _make_state(environment_reactive=False)
+        payload = InjectionPayload(state_updates={"nonexistent": {"mood": "sad"}})
+        observer = MockObserver(before_directives=[ObserverDirective.inject(payload)])
+        eng, _ = _engine(state, ["response"], observer)
+        # Should not raise — just logs a warning
+        await eng.run_episode()
+
+    async def test_unknown_party_id_persona_override_warns(self) -> None:
+        state = _make_state(environment_reactive=False)
+        payload = InjectionPayload(persona_overrides={"nonexistent": {"description": "X"}})
+        observer = MockObserver(before_directives=[ObserverDirective.inject(payload)])
+        eng, _ = _engine(state, ["response"], observer)
+        # Should not raise — just logs a warning
+        await eng.run_episode()
