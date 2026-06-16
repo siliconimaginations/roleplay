@@ -26,15 +26,27 @@ Usage::
 
     # Quiet mode — one-line summary per episode, full dialog saved to a log file:
     uv run python -m roleplay.poc --config scenarios/my.toml --verbosity 0
+
+    # Medium verbosity — 80-char excerpts per turn + AI summary (good for long runs):
+    uv run python -m roleplay.poc --config scenarios/my.toml --verbosity 2
+
+    # Spinner while LLM generates (dots printed to stderr):
+    uv run python -m roleplay.poc --watch
+
+    # Resume after a crash (checkpoint auto-saved per episode):
+    uv run python -m roleplay.poc --config scenarios/my.toml --resume
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import datetime
+import json
 import logging
 import shutil
+import sys
 import textwrap
 import time
 from dataclasses import dataclass, field
@@ -54,6 +66,8 @@ from roleplay.memory.store import InMemoryStore
 from roleplay.providers.base import CompletionRequest, CompletionResponse
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from roleplay.engine.observer import ObserverHook
     from roleplay.engine.turn import Turn
 
@@ -80,18 +94,23 @@ class _CliObserver:
         verbosity: Output detail level.
 
             * ``1`` (default) — full turn dialog streamed in real time.
-            * ``0`` — AI-generated summary per episode; full dialog is
-              collected in memory and can be written to a file via
-              :meth:`write_log`.
+            * ``0`` — AI-generated one-line summary per episode; full dialog
+              collected and written to a log file via :meth:`write_log`.
+            * ``2`` — first 80 characters of each turn + AI summary per
+              episode.  Good for monitoring long runs without full dialog.
+        watch: When ``True``, print an animated spinner to stderr while
+            ``provider.complete()`` is in flight.  Cleared when the response
+            arrives.
         max_episodes: Total episode count, used to print ``N / M`` in the
             header.  ``0`` means unknown (header shows only ``N``).  Set
             automatically by :func:`run_poc`.
-        provider: LLM provider used to generate summaries at verbosity=0.
+        provider: LLM provider used to generate summaries at verbosity 0/2.
             Set automatically by :func:`run_poc` after the provider is
             resolved.  ``None`` produces a fallback "(no summarizer)" line.
     """
 
     verbosity: int = 1
+    watch: bool = False
     max_episodes: int = 0
     provider: _Summarizable | None = None
     _width: int = field(default_factory=lambda: min(shutil.get_terminal_size().columns, 100))
@@ -178,10 +197,15 @@ class _CliObserver:
         # Always accumulate for the log.
         self._log_lines.extend(lines)
 
-        # Only print when verbosity is high enough.
-        if self.verbosity >= 1:
+        if self.verbosity == 1:
+            # Full dialog streamed in real time.
             for line in lines:
                 print(line)
+        elif self.verbosity == 2:
+            # 80-char excerpt per turn — enough context without full noise.
+            raw = turn.output.strip().replace("\n", " ")
+            excerpt = raw[:80] + ("…" if len(raw) > 80 else "")
+            print(f"\n  {label}: {excerpt}")
 
         return ObserverDirective.continue_()
 
@@ -192,7 +216,7 @@ class _CliObserver:
     ) -> ObserverDirective:
         self._final_state = state
 
-        if self.verbosity == 0:
+        if self.verbosity in (0, 2):
             await self._print_episode_summary(state)
 
         # Model notice + timing ------------------------------------------------
@@ -311,6 +335,39 @@ class _CliObserver:
             logger.debug("Goal progress check failed: %s", exc)
             return ("(goal check unavailable)", False)
 
+    async def _spin_while(
+        self, label: str, coro: Awaitable[CompletionResponse]
+    ) -> CompletionResponse:
+        """Run *coro* while printing an animated spinner to stderr.
+
+        The spinner is ``label ....`` with one dot added every 0.4 s.
+        The line is cleared (ANSI escape) when the coroutine finishes.
+        Falls back to a plain await if stderr is not a TTY.
+        """
+        if not self.watch or not sys.stderr.isatty():
+            return await coro
+
+        async def _spinner(prefix: str) -> None:
+            dot_count = 0
+            while True:
+                dots = "." * (dot_count % 6 + 1)
+                sys.stderr.write(f"\r  {prefix} {dots:<6}")
+                sys.stderr.flush()
+                await asyncio.sleep(0.4)
+                dot_count += 1
+
+        spinner_task = asyncio.create_task(_spinner(label))
+        try:
+            result = await coro
+        finally:
+            spinner_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await spinner_task
+            # Clear the spinner line.
+            sys.stderr.write("\r" + " " * (len(label) + 10) + "\r")
+            sys.stderr.flush()
+        return result
+
     def write_log(self, path: Path) -> None:
         """Write the full dialog collected during the run to *path*."""
         path.write_text("\n".join(self._log_lines), encoding="utf-8")
@@ -345,6 +402,30 @@ class _CliObserver:
         else:
             print("  (no state)")
         print()
+
+
+# ---------------------------------------------------------------------------
+# Watch-mode provider wrapper — adds spinner around every complete() call
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _WatchProvider:
+    """Wraps any provider to show an animated spinner during completion calls.
+
+    Instantiated by :func:`run_poc` when ``--watch`` is active.  The spinner
+    prints to stderr so it does not pollute the episode dialog on stdout.
+    """
+
+    _inner: _Summarizable
+    _observer: _CliObserver
+
+    @property
+    def default_model(self) -> str:
+        return getattr(self._inner, "default_model", "")
+
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        return await self._observer._spin_while("Generating", self._inner.complete(request))
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +508,99 @@ def _build_default_state(config: SimulationConfig) -> SimulationState:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Checkpoint helpers — lightweight JSON-based resume support
+# ---------------------------------------------------------------------------
+
+_CHECKPOINT_VERSION = 1
+
+
+def _load_checkpoint(path: Path, max_episodes: int, resume: bool) -> int:
+    """Return the number of already-completed episodes, or 0.
+
+    If *resume* is ``False`` or the checkpoint does not exist, returns 0.
+    If a checkpoint is found and *resume* is ``True``, prints a notice and
+    returns the completed episode count so the caller can skip them.
+    If the checkpoint says all episodes are done, exits immediately.
+    """
+    if not resume or not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        done = int(data.get("episodes_completed", 0))
+        total = int(data.get("max_episodes", max_episodes))
+    except Exception:
+        print(f"[checkpoint] Could not read {path} — starting from scratch.")
+        return 0
+
+    if done >= total:
+        print(f"[checkpoint] All {total} episodes already completed. Nothing to resume.")
+        raise SystemExit(0)
+
+    print(f"[checkpoint] Resuming from episode {done + 1} / {total}  ({path})")
+    return done
+
+
+def _write_checkpoint(path: Path, episodes_completed: int, max_episodes: int) -> None:
+    """Write (or overwrite) a checkpoint file after each completed episode."""
+    data = {
+        "version": _CHECKPOINT_VERSION,
+        "episodes_completed": episodes_completed,
+        "max_episodes": max_episodes,
+        "saved_at": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
+    try:
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not write checkpoint to %s: %s", path, exc)
+
+
+@dataclass
+class _CheckpointObserver:
+    """Wraps another observer and writes a checkpoint after every episode.
+
+    This is transparent to the inner observer — all directives pass through
+    unchanged.  The checkpoint is written *after* the inner observer's
+    ``after_episode`` returns so that a halt directive still produces a
+    checkpoint for the completed episode.
+    """
+
+    inner: ObserverHook | None
+    checkpoint_path: Path
+    max_episodes: int
+    _episodes_completed: int = field(default=0, init=False)
+
+    async def before_episode(
+        self,
+        state: SimulationState,
+        episode_index: int,
+    ) -> ObserverDirective:
+        if self.inner is not None:
+            return await self.inner.before_episode(state, episode_index)
+        return ObserverDirective.continue_()
+
+    async def after_turn(
+        self,
+        state: SimulationState,
+        turn: Turn,
+    ) -> ObserverDirective:
+        if self.inner is not None:
+            return await self.inner.after_turn(state, turn)
+        return ObserverDirective.continue_()
+
+    async def after_episode(
+        self,
+        state: SimulationState,
+        episode: object,
+    ) -> ObserverDirective:
+        directive = ObserverDirective.continue_()
+        if self.inner is not None:
+            directive = await self.inner.after_episode(state, episode)
+        self._episodes_completed += 1
+        _write_checkpoint(self.checkpoint_path, self._episodes_completed, self.max_episodes)
+        return directive
+
+
 def _resolve_provider(provider_name: str) -> object:
     """Return a live provider instance for the given name string."""
     if provider_name == "claude":
@@ -445,6 +619,7 @@ async def run_poc(
     config_path: Path | None = None,
     env_file: Path = Path(".env"),
     observer: ObserverHook | None = None,
+    resume: bool = False,
 ) -> None:
     """Run the simulation end-to-end.
 
@@ -458,6 +633,9 @@ async def run_poc(
         observer: Optional :class:`~roleplay.engine.observer.ObserverHook` for
             real-time output or intervention.  ``_CliObserver`` is used when
             running from the command line.
+        resume: If ``True``, look for a ``.checkpoint.json`` next to
+            *config_path* (or ``poc.checkpoint.json`` for the built-in
+            scenario) and skip already-completed episodes.
     """
     from roleplay.config import load_env_file, load_scenario
 
@@ -469,6 +647,7 @@ async def run_poc(
             max_episodes = file_episodes
         if use_mock:
             provider_name = "mock"
+        checkpoint_path = config_path.with_suffix(".checkpoint.json")
     else:
         sim_config = SimulationConfig(
             session_id="poc-001",
@@ -481,6 +660,10 @@ async def run_poc(
         provider_name = "mock" if use_mock else "gemini"
         if max_episodes == -1:
             max_episodes = 3
+        checkpoint_path = Path("poc.checkpoint.json")
+
+    # ── Checkpoint resume ────────────────────────────────────────────────────
+    episodes_done = _load_checkpoint(checkpoint_path, max_episodes, resume)
 
     memory_store = InMemoryStore()
 
@@ -490,17 +673,34 @@ async def run_poc(
         provider = _resolve_provider(provider_name)  # type: ignore[assignment]
 
     # Give the CLI observer access to the provider so it can generate
-    # AI summaries at verbosity=0, and pass the total episode count and
+    # AI summaries at verbosity 0/2, and pass the total episode count and
     # default model so it can render the counter and detect model switches.
     if isinstance(observer, _CliObserver):
         observer.provider = provider
         observer.max_episodes = max_episodes
         observer._default_model = getattr(provider, "default_model", "")
+        if observer.watch:
+            provider = _WatchProvider(_inner=provider, _observer=observer)
+
+    # ── Checkpoint-aware observer wrapper ────────────────────────────────────
+    # Wrap the caller's observer to write a checkpoint after every episode.
+    wrapped_observer: ObserverHook | None = (
+        _CheckpointObserver(
+            inner=observer,
+            checkpoint_path=checkpoint_path,
+            max_episodes=max_episodes,
+        )
+        if checkpoint_path is not None
+        else observer
+    )
 
     engine = SimulationEngine(
-        state=state, provider=provider, memory_store=memory_store, observer=observer
+        state=state,
+        provider=provider,
+        memory_store=memory_store,
+        observer=wrapped_observer,
     )
-    await engine.run(max_episodes=max_episodes)
+    await engine.run(max_episodes=max_episodes - episodes_done if episodes_done else max_episodes)
 
 
 def main() -> None:
@@ -535,11 +735,26 @@ def main() -> None:
         "--verbosity",
         type=int,
         default=1,
-        choices=[0, 1],
-        metavar="{0,1}",
+        choices=[0, 1, 2],
+        metavar="{0,1,2}",
         help=(
-            "Output verbosity: 1=full dialog (default), "
-            "0=episode summaries only (full dialog saved to a log file)"
+            "Output verbosity: "
+            "1=full dialog (default), "
+            "0=episode summaries only (dialog saved to log file), "
+            "2=80-char excerpts + AI summary (good for long runs)"
+        ),
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Print animated spinner to stderr while the LLM generates (useful with Gemma 4 26B)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from .checkpoint.json if present "
+            "(checkpoint is written automatically after every episode)"
         ),
     )
     args = parser.parse_args()
@@ -550,7 +765,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("roleplay").setLevel(logging.WARNING)
 
-    observer = _CliObserver(verbosity=args.verbosity)
+    observer = _CliObserver(verbosity=args.verbosity, watch=args.watch)
 
     # Print a brief header before the simulation starts.
     from roleplay.config import load_env_file, load_scenario
@@ -580,15 +795,17 @@ def main() -> None:
             config_path=args.config,
             env_file=args.env_file,
             observer=observer,
+            resume=args.resume,
         )
     )
 
     # Post-run output ----------------------------------------------------------
     observer.write_session_summary()
 
-    if args.verbosity == 0:
+    if args.verbosity in (0, 2):
         observer.write_env_snapshot()
 
+    if args.verbosity == 0:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = Path(f"roleplay_{ts}.log")
         observer.write_log(log_path)
