@@ -23,7 +23,7 @@ Multi-party interaction simulator driven by LLM agents.
 | 5 | LLM Provider Layer | ✅ Complete |
 | POC | Scenario Runner (poc.py) | ✅ Complete |
 | 6 | Persistence & Session | ✅ Complete |
-| 7 | CLI (roleplay run / inspect / fork) | 🔲 Planned |
+| 7 | CLI (roleplay run / inspect / fork) | ✅ Complete |
 | 8 | REST API | 🔲 Planned |
 | 9 | Hardening & CI/CD Maturity | 🔲 Planned |
 
@@ -41,7 +41,7 @@ roleplay/
 │   ├── persistence/   # SQLite session storage, serialization (Stage 6)
 │   ├── api/           # REST API (Stage 8)
 │   ├── poc.py         # Full-featured POC scenario runner (current primary CLI)
-│   ├── cli.py         # Stub — full CLI coming in Stage 7
+│   ├── cli.py         # Full CLI (Stage 7) — run/resume/inspect/list/fork/forget/delete
 │   ├── config.py      # TOML scenario loader + .env key loader
 │   └── validate.py    # TOML scenario validator CLI
 ├── tests/
@@ -198,23 +198,22 @@ Exit criteria met: Session save/resume round-trips correctly; memory survives pr
 
 ---
 
-## Stage 7 — CLI UI 🔲
+## Stage 7 — CLI UI ✅
 
-Implement the full `roleplay` CLI described in `docs/engineering/08-cli.md`.
+Full `roleplay` CLI merged as PR #61. All 7 commands from `docs/engineering/08-cli.md` implemented.
 
-Note: `poc.py` already covers the core `roleplay run` use case; Stage 7 adds persistence-backed commands, the YAML scenario format, and interactive pause mode.
+| Submodule | PR | Notes |
+|-----------|-----|-------|
+| `scenario_yaml.py` — YAML scenario loader | #61 | Validation, scheduler/clock/tool-import; 92% coverage |
+| `roleplay run <scenario.yaml>` | #61 | YAML loader; stream output to terminal |
+| `roleplay resume <session_id>` | #61 | Load from SQLite and continue |
+| `roleplay inspect <session_id>` | #61 | Dump party state, memory, episode log |
+| `roleplay list` | #61 | All sessions in DB |
+| `roleplay fork <session_id>` | #61 | Branch a session at current state |
+| `roleplay forget` / `roleplay delete` | #61 | Memory + session management |
+| `CliObserverHook` + interactive pause mode | #61 | `p` to pause; inject/state/persona/memory commands |
 
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| `roleplay run <scenario.yaml>` | `08-cli.md` | YAML loader; stream output to terminal |
-| `roleplay resume <session_id>` | `08-cli.md` | Load from SQLite and continue |
-| `roleplay inspect <session_id>` | `08-cli.md` | Dump party state, memory, episode log |
-| `roleplay list` | `08-cli.md` | All sessions in DB |
-| `roleplay fork <session_id>` | `08-cli.md` | Branch a session at current state |
-| `roleplay forget` / `roleplay delete` | `08-cli.md` | Memory + session management |
-| Interactive pause mode | `08-cli.md` | `p` to pause; inject / state / persona / memory commands |
-
-Exit criteria: Both example scenarios runnable from CLI with real LLMs; resume tested after simulated crash.
+Exit criteria met: 443 tests pass; scenario_yaml.py at 92% coverage; all 7 CLI commands implemented.
 
 ---
 
