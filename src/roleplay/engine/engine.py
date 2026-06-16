@@ -329,10 +329,12 @@ class SimulationEngine:
         return episode
 
     async def run(self, max_episodes: int | None = None) -> None:
-        """Run episodes until max_episodes reached or observer halts.
+        """Run episodes until max_episodes reached, observer halts, or providers exhaust.
 
-        Stops cleanly (without re-raising) when the provider chain is
-        fully exhausted so that callers can still print post-run summaries.
+        Both :class:`~roleplay.engine.engine._HaltSignalError` (observer stop)
+        and :class:`~roleplay.providers.base.ProviderExhaustedError` (all models
+        exhausted) break the loop without propagating, so callers can always
+        execute post-run logic such as printing a session summary.
         """
         count = 0
         while max_episodes is None or count < max_episodes:
