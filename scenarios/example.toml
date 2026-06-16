@@ -18,7 +18,7 @@ episodes               = 3
 context_window_episodes = 5
 memory_max_entries     = 20
 environment_reactive   = true       # environment party gets its own turn each episode
-# goal = "Alice and Bob agree on a partnership deal"  # optional: end early when met
+goal = "Alice commits to the modular deployment deal without needing further approval"  # optional: end early when met
 
 # ---------------------------------------------------------------------------
 # Parties — people and organisations who interact
