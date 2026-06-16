@@ -29,6 +29,8 @@ import typer
 from roleplay.config import load_env_file
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from roleplay.core.simulation_state import SimulationState
     from roleplay.engine.observer import InjectionPayload, ObserverDirective
     from roleplay.engine.turn import Turn
@@ -215,9 +217,9 @@ class CliObserverHook:
             "[o]rder <p1> <p2>  [q]uit  [?] help"
         )
 
-        loop = asyncio.get_event_loop()
         while True:
             try:
+                loop = asyncio.get_running_loop()
                 raw = await loop.run_in_executor(None, lambda: input("> ").strip())
             except (EOFError, KeyboardInterrupt):
                 return None
@@ -316,8 +318,10 @@ class CliObserverHook:
 # ---------------------------------------------------------------------------
 
 
-def _run(coro: object) -> None:
-    asyncio.run(coro)  # type: ignore[arg-type]
+def _run(coro: Coroutine[object, object, None]) -> None:
+    # asyncio.run is safe to call multiple times in Python 3.12+; each call
+    # creates and tears down its own event loop.
+    asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
