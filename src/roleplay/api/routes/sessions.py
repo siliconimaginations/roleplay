@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from roleplay.api.auth import require_api_key
-from roleplay.api.runner import RunStatusLiteral
 from roleplay.api.schemas import PartySchema, SessionDetail, SessionSummary
 from roleplay.persistence.base import SessionNotFoundError
 
 if TYPE_CHECKING:
+    from roleplay.api.runner import RunStatusLiteral
     from roleplay.core.simulation_state import SimulationState
     from roleplay.persistence.base import PersistenceLayer
 
@@ -33,7 +33,7 @@ def _session_status(session_id: str, runners: dict[str, Any]) -> RunStatusLitera
     runner = runners.get(session_id)
     if runner is None:
         return "idle"
-    return cast(RunStatusLiteral, runner.status)
+    return cast("RunStatusLiteral", runner.status)
 
 
 def _parties_from_state(
