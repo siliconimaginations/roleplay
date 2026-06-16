@@ -66,6 +66,8 @@ from roleplay.memory.store import InMemoryStore
 from roleplay.providers.base import CompletionRequest, CompletionResponse
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from roleplay.engine.observer import ObserverHook
     from roleplay.engine.turn import Turn
 
@@ -333,7 +335,9 @@ class _CliObserver:
             logger.debug("Goal progress check failed: %s", exc)
             return ("(goal check unavailable)", False)
 
-    async def _spin_while(self, label: str, coro: object) -> CompletionResponse:
+    async def _spin_while(
+        self, label: str, coro: Awaitable[CompletionResponse]
+    ) -> CompletionResponse:
         """Run *coro* while printing an animated spinner to stderr.
 
         The spinner is ``label ....`` with one dot added every 0.4 s.
@@ -341,7 +345,7 @@ class _CliObserver:
         Falls back to a plain await if stderr is not a TTY.
         """
         if not self.watch or not sys.stderr.isatty():
-            return await coro  # type: ignore[misc]
+            return await coro
 
         async def _spinner(prefix: str) -> None:
             dot_count = 0
@@ -354,7 +358,7 @@ class _CliObserver:
 
         spinner_task = asyncio.create_task(_spinner(label))
         try:
-            result = await coro  # type: ignore[misc]
+            result = await coro
         finally:
             spinner_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -362,7 +366,7 @@ class _CliObserver:
             # Clear the spinner line.
             sys.stderr.write("\r" + " " * (len(label) + 10) + "\r")
             sys.stderr.flush()
-        return result  # type: ignore[return-value]
+        return result
 
     def write_log(self, path: Path) -> None:
         """Write the full dialog collected during the run to *path*."""
