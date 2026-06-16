@@ -15,8 +15,7 @@ def _get_configured_key() -> str | None:
     key = os.environ.get("ROLEPLAY_API_KEY")
     if key is None:
         logger.debug(
-            "ROLEPLAY_API_KEY is not set — API auth is DISABLED. "
-            "Set the env var before deploying."
+            "ROLEPLAY_API_KEY is not set — API auth is DISABLED. Set the env var before deploying."
         )
     return key
 

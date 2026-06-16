@@ -233,6 +233,7 @@ async def stream_session(
                 break
     finally:
         import contextlib
+
         runner.unsubscribe(q)
         with contextlib.suppress(Exception):
             await websocket.close()

@@ -39,9 +39,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="Roleplay Simulator API",
-        description=(
-            "REST API for managing and running multi-party interaction simulations."
-        ),
+        description=("REST API for managing and running multi-party interaction simulations."),
         version="0.1.0",
         lifespan=_lifespan,
     )

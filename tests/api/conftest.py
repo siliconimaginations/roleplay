@@ -32,6 +32,7 @@ parties:
 
 async def _build_app_and_layer(tmp_path: object, api_key: str | None) -> tuple:
     import tempfile
+
     # Use /tmp so SQLite files don't land on the full /sessions disk
     _tmpdir = tempfile.mkdtemp(prefix="roleplay_test_", dir="/tmp")
     db_path = _tmpdir + "/test.db"
@@ -70,9 +71,7 @@ def _restore_env(old_env: dict[str, str | None]) -> None:
 async def client(tmp_path: object) -> None:  # type: ignore[type-arg]
     """Async test client in dev mode (no API key required)."""
     app, layer, old_env = await _build_app_and_layer(tmp_path, api_key=None)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     await layer.close()
     _restore_env(old_env)
@@ -82,9 +81,7 @@ async def client(tmp_path: object) -> None:  # type: ignore[type-arg]
 async def client_with_key(tmp_path: object) -> None:  # type: ignore[type-arg]
     """Async test client requiring X-API-Key: test-secret-key."""
     app, layer, old_env = await _build_app_and_layer(tmp_path, api_key="test-secret-key")
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     await layer.close()
     _restore_env(old_env)

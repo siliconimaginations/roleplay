@@ -172,9 +172,7 @@ async def get_session(
     try:
         state = await layer.load_session(session_id)
     except SessionNotFoundError:
-        raise HTTPException(
-            status_code=404, detail=f"Session {session_id!r} not found"
-        ) from None
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
 
     parties, env = _parties_from_state(state)
     cfg = state.config
@@ -221,9 +219,7 @@ async def delete_session(
     try:
         await layer.load_session(session_id)
     except SessionNotFoundError:
-        raise HTTPException(
-            status_code=404, detail=f"Session {session_id!r} not found"
-        ) from None
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
     await layer.delete_session(session_id)
     runners.pop(session_id, None)
 
@@ -247,9 +243,7 @@ async def fork_session(
     try:
         await layer.fork(session_id, new_id)
     except SessionNotFoundError:
-        raise HTTPException(
-            status_code=404, detail=f"Session {session_id!r} not found"
-        ) from None
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
 
     return SessionSummary(
         session_id=new_id,

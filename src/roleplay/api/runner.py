@@ -42,6 +42,7 @@ def _build_registry() -> ProviderRegistry:  # type: ignore[name-defined]  # noqa
         logger.debug("ClaudeProvider not available (missing API key?)")
     return registry
 
+
 _QUEUE_MAXSIZE = 512
 
 
@@ -63,9 +64,7 @@ class ApiObserverHook:
             return ObserverDirective.halt("Paused via API request")
 
         # Broadcast episode_start
-        await self._runner._broadcast(
-            {"type": "episode_start", "episode": episode_index}
-        )
+        await self._runner._broadcast({"type": "episode_start", "episode": episode_index})
         return ObserverDirective.continue_()
 
     async def after_turn(
@@ -91,9 +90,7 @@ class ApiObserverHook:
         episode: object,
     ) -> ObserverDirective:
         ep_index = len(state.history.completed_episodes()) - 1
-        await self._runner._broadcast(
-            {"type": "episode_end", "episode": max(ep_index, 0)}
-        )
+        await self._runner._broadcast({"type": "episode_end", "episode": max(ep_index, 0)})
         self._runner.episodes_completed += 1
         return ObserverDirective.continue_()
 
@@ -146,14 +143,13 @@ class SessionRunner:
 
         ``None`` is sent as sentinel when the simulation ends.
         """
-        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(
-            maxsize=_QUEUE_MAXSIZE
-        )
+        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
         self._subscribers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict[str, Any] | None]) -> None:
         import contextlib
+
         with contextlib.suppress(ValueError):
             self._subscribers.remove(q)
 
@@ -206,6 +202,7 @@ class SessionRunner:
             await self._broadcast(complete_event)
             for q in list(self._subscribers):
                 import contextlib
+
                 with contextlib.suppress(asyncio.QueueFull):
                     q.put_nowait(None)  # sentinel
             await layer.close()

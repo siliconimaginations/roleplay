@@ -21,13 +21,9 @@ class TestAuth:
         assert resp.status_code == 401
 
     async def test_key_required_wrong_key(self, client_with_key: AsyncClient) -> None:
-        resp = await client_with_key.get(
-            "/sessions", headers={"X-API-Key": "wrong-key"}
-        )
+        resp = await client_with_key.get("/sessions", headers={"X-API-Key": "wrong-key"})
         assert resp.status_code == 403
 
     async def test_key_required_correct_key(self, client_with_key: AsyncClient) -> None:
-        resp = await client_with_key.get(
-            "/sessions", headers={"X-API-Key": "test-secret-key"}
-        )
+        resp = await client_with_key.get("/sessions", headers={"X-API-Key": "test-secret-key"})
         assert resp.status_code == 200

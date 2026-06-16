@@ -44,9 +44,7 @@ class TestCreateSession:
         resp = await client.post("/sessions", content=b"")
         assert resp.status_code == 422
 
-    async def test_create_missing_environment_returns_422(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_missing_environment_returns_422(self, client: AsyncClient) -> None:
         yaml_no_env = """\
 session_id: "no-env"
 config:
@@ -60,9 +58,7 @@ parties:
         resp = await client.post("/sessions", content=yaml_no_env)
         assert resp.status_code == 422
 
-    async def test_create_missing_parties_returns_422(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_missing_parties_returns_422(self, client: AsyncClient) -> None:
         yaml_no_parties = """\
 session_id: "no-parties"
 config:
@@ -108,9 +104,7 @@ class TestGetSession:
         assert "alice" in party_ids
         assert "bob" in party_ids
 
-    async def test_get_nonexistent_session_returns_404(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_nonexistent_session_returns_404(self, client: AsyncClient) -> None:
         resp = await client.get("/sessions/nonexistent")
         assert resp.status_code == 404
 

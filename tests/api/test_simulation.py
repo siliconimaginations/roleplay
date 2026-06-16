@@ -28,9 +28,7 @@ class TestGetStatus:
         assert body["episodes_completed"] == 0
         assert body["episodes_requested"] == 0
 
-    async def test_status_nonexistent_session_returns_idle(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_status_nonexistent_session_returns_idle(self, client: AsyncClient) -> None:
         """Unknown sessions get an idle runner (runner is created on demand)."""
         resp = await client.get("/sessions/ghost/status")
         assert resp.status_code == 200
