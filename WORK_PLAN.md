@@ -22,7 +22,7 @@ Multi-party interaction simulator driven by LLM agents.
 | 4 | Simulation Engine | ✅ Complete |
 | 5 | LLM Provider Layer | ✅ Complete |
 | POC | Scenario Runner (poc.py) | ✅ Complete |
-| 6 | Persistence & Session | 🔲 Planned |
+| 6 | Persistence & Session | ✅ Complete |
 | 7 | CLI (roleplay run / inspect / fork) | 🔲 Planned |
 | 8 | REST API | 🔲 Planned |
 | 9 | Hardening & CI/CD Maturity | 🔲 Planned |
@@ -181,22 +181,20 @@ uv run python -m roleplay.poc [OPTIONS]
 
 ---
 
-## Stage 6 — Persistence & Session 🔲
+## Stage 6 — Persistence & Session ✅
 
-Implement `src/roleplay/persistence/`.
+`src/roleplay/persistence/` — durable SQLite-backed session storage.
 
-Prerequisite for `roleplay resume`, `roleplay fork`, and `roleplay inspect`.
+| Submodule | PRs | Notes |
+|-----------|-----|-------|
+| SQLite schema + migrations | #59 | WAL mode, FK enforcement, 6 tables, versioned migration runner |
+| `SqlitePersistenceLayer` | #59 | Create, save, load, list, delete sessions |
+| Session save / resume | #59 | Full state round-trip; append-only state_changes replay |
+| Memory persistence | #59 | Durable store: write, retrieve, compact, forget; CRUD + counts |
+| Session fork / branching | #59 | Two-pass memory copy remaps source_entry_ids provenance chains |
+| JSON export | #59 | Raw dict of all tables for analysis and downstream tools |
 
-| Submodule | Design Doc | Notes |
-|-----------|-----------|-------|
-| SQLite schema + migrations | `07-persistence.md` | Sessions, episodes, turns, memory entries |
-| `SqlitePersistenceLayer` | `07-persistence.md` | Create, save, load, list, delete |
-| Session save / resume | `07-persistence.md` | Full state round-trip across process restarts |
-| Memory persistence | `07-persistence.md` | Durable store (replaces `InMemoryStore`) |
-| Session fork / branching | `07-persistence.md` | `parent_session_id` + `forked_at_episode` |
-| JSON export | `07-persistence.md` | For analysis and downstream tools |
-
-Exit criteria: Session save/resume round-trips correctly; memory survives process restart; ≥ 80% coverage.
+Exit criteria met: Session save/resume round-trips correctly; memory survives process restart; 94% coverage on new files (45 tests).
 
 ---
 
