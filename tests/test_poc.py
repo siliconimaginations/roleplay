@@ -885,7 +885,7 @@ class TestVerbosity2:
 class TestCheckpoint:
     """_write_checkpoint / _load_checkpoint round-trip and edge cases."""
 
-    def test_write_then_load_returns_correct_count(self, tmp_path: "Path") -> None:
+    def test_write_then_load_returns_correct_count(self, tmp_path: Path) -> None:
         """Writing checkpoint then loading returns the saved episode count."""
         from roleplay.poc import _load_checkpoint, _write_checkpoint
 
@@ -894,7 +894,7 @@ class TestCheckpoint:
         done = _load_checkpoint(cp, max_episodes=10, resume=True)
         assert done == 7
 
-    def test_load_without_resume_returns_zero(self, tmp_path: "Path") -> None:
+    def test_load_without_resume_returns_zero(self, tmp_path: Path) -> None:
         """_load_checkpoint with resume=False always returns 0."""
         from roleplay.poc import _load_checkpoint, _write_checkpoint
 
@@ -902,13 +902,13 @@ class TestCheckpoint:
         _write_checkpoint(cp, episodes_completed=5, max_episodes=10)
         assert _load_checkpoint(cp, max_episodes=10, resume=False) == 0
 
-    def test_load_missing_file_returns_zero(self, tmp_path: "Path") -> None:
+    def test_load_missing_file_returns_zero(self, tmp_path: Path) -> None:
         """Missing checkpoint file returns 0 without error."""
         from roleplay.poc import _load_checkpoint
 
         assert _load_checkpoint(tmp_path / "missing.json", max_episodes=5, resume=True) == 0
 
-    def test_load_corrupt_file_returns_zero(self, tmp_path: "Path") -> None:
+    def test_load_corrupt_file_returns_zero(self, tmp_path: Path) -> None:
         """Corrupt checkpoint file returns 0 without crashing."""
         from roleplay.poc import _load_checkpoint
 
@@ -916,7 +916,7 @@ class TestCheckpoint:
         cp.write_text("not json{{{", encoding="utf-8")
         assert _load_checkpoint(cp, max_episodes=5, resume=True) == 0
 
-    def test_load_all_done_raises_systemexit(self, tmp_path: "Path") -> None:
+    def test_load_all_done_raises_systemexit(self, tmp_path: Path) -> None:
         """If checkpoint says all episodes done, _load_checkpoint raises SystemExit."""
         import pytest
 
@@ -927,9 +927,9 @@ class TestCheckpoint:
         with pytest.raises(SystemExit):
             _load_checkpoint(cp, max_episodes=5, resume=True)
 
-    async def test_checkpoint_written_after_each_episode(self, tmp_path: "Path") -> None:
+    async def test_checkpoint_written_after_each_episode(self, tmp_path: Path) -> None:
         """_CheckpointObserver writes checkpoint after every completed episode."""
-        from roleplay.poc import _CheckpointObserver, _write_checkpoint
+        from roleplay.poc import _CheckpointObserver
 
         cp = tmp_path / "run.checkpoint.json"
         obs = _CheckpointObserver(inner=None, checkpoint_path=cp, max_episodes=3)
@@ -947,7 +947,7 @@ class TestCheckpoint:
         assert data["episodes_completed"] == 2
         assert data["max_episodes"] == 3
 
-    async def test_run_poc_creates_checkpoint(self, tmp_path: "Path") -> None:
+    async def test_run_poc_creates_checkpoint(self, tmp_path: Path) -> None:
         """run_poc writes a checkpoint file next to the config TOML."""
         example = Path(__file__).parent.parent / "scenarios" / "example.toml"
         import shutil
