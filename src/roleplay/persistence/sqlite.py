@@ -284,7 +284,9 @@ class SqlitePersistenceLayer:
         ).fetchall()
 
         # Rebuild state for each party
-        party_states: dict[str, dict[str, object]] = {}
+        from roleplay.core.party import StateValue as _StateValue
+
+        party_states: dict[str, dict[str, _StateValue]] = {}
         for cr in change_rows:
             pid = cr["party_id"]
             if pid not in party_states:
