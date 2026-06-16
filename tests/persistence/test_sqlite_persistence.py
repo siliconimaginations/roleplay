@@ -493,6 +493,44 @@ class TestFork:
         assert len(root_mems) == 1
         assert len(fork_mems) == 1
 
+    async def test_fork_source_entry_ids_remapped(self, layer: SqlitePersistenceLayer) -> None:
+        """source_entry_ids in forked entries must point to the fork's own entry IDs."""
+        state = _make_state("root")
+        await layer.create_session(state)
+
+        # Write two source entries then a compacted entry referencing them
+        src1 = MemoryEntry(
+            party_id="alice", kind=MemoryKind.EPISODIC, content="src1", episode_index=0
+        )
+        src2 = MemoryEntry(
+            party_id="alice", kind=MemoryKind.EPISODIC, content="src2", episode_index=0
+        )
+        compacted = MemoryEntry(
+            party_id="alice",
+            kind=MemoryKind.COMPACTED,
+            content="compacted",
+            episode_index=1,
+            source_entry_ids=(src1.id, src2.id),
+        )
+        await layer.write_memories("root", [src1, src2, compacted])
+        await layer.fork("root", "fork-1")
+
+        fork_mems = await layer.retrieve_memories("fork-1", "alice")
+        fork_ids = {m.id for m in fork_mems}
+        fork_compacted = next(m for m in fork_mems if m.kind == MemoryKind.COMPACTED)
+
+        # source_entry_ids must reference entries that exist in the fork
+        for src_id in fork_compacted.source_entry_ids:
+            assert src_id in fork_ids, (
+                f"source_entry_id {src_id!r} not found in fork entries {fork_ids}"
+            )
+        # And they must NOT reference the original session's IDs
+        original_ids = {src1.id, src2.id, compacted.id}
+        for src_id in fork_compacted.source_entry_ids:
+            assert src_id not in original_ids, (
+                f"source_entry_id {src_id!r} still points to original session entry"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Export

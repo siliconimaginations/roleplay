@@ -750,14 +750,20 @@ class SqlitePersistenceLayer:
                         ),
                     )
 
-            # Copy memory entries (new entry_id per copy to satisfy PK uniqueness)
+            # Copy memory entries: assign new UUIDs and remap source_entry_ids
+            # so provenance chains remain valid within the fork.
             mem_rows = await (
                 await db.execute(
                     "SELECT * FROM memory_entries WHERE session_id = ?",
                     (session_id,),
                 )
             ).fetchall()
+            # First pass: build old_id → new_id mapping
+            id_map: dict[str, str] = {mr["entry_id"]: str(_uuid4()) for mr in mem_rows}
+            # Second pass: insert with remapped source_entry_ids
             for mr in mem_rows:
+                old_sources: list[str] = json.loads(mr["source_entry_ids_json"])
+                new_sources = json.dumps([id_map.get(s, s) for s in old_sources])
                 await db.execute(
                     "INSERT INTO memory_entries "
                     "(entry_id, party_id, session_id, kind, content, episode_index, "
@@ -765,7 +771,7 @@ class SqlitePersistenceLayer:
                     "source_entry_ids_json, created_at, forgotten) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        str(_uuid4()),  # new UUID — entry_id PK is globally unique
+                        id_map[mr["entry_id"]],
                         mr["party_id"],
                         new_session_id,
                         mr["kind"],
@@ -774,7 +780,7 @@ class SqlitePersistenceLayer:
                         mr["importance"],
                         mr["last_accessed_episode"],
                         mr["access_count"],
-                        mr["source_entry_ids_json"],
+                        new_sources,
                         mr["created_at"],
                         mr["forgotten"],
                     ),
