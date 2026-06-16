@@ -230,7 +230,7 @@ Expose the simulator as a service.
 
 ---
 
-## Stage 9 — Hardening & CI/CD Maturity 🔲
+## Stage 9 — Hardening & CI/CD Maturity ✅
 
 | Submodule | Notes |
 |-----------|-------|

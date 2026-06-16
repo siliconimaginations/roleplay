@@ -6,6 +6,8 @@ import asyncio
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import pytest
+
 if TYPE_CHECKING:
     from httpx import AsyncClient
 
@@ -127,3 +129,146 @@ class TestRunnerIntegration:
         body = final.json()
         assert body["status"] == "done", f"Unexpected final status: {body}"
         assert body["episodes_completed"] == 1
+
+
+class TestCoverageGaps:
+    """Tests targeting specific uncovered branches."""
+
+    @pytest.mark.asyncio
+    async def test_run_already_running_returns_409(self, app_client: object) -> None:
+        """POST /run on an already-running session → 409."""
+        from roleplay.api.runner import SessionRunner
+
+        app, client = app_client  # type: ignore[misc]
+        await client.post("/sessions", content=MINIMAL_YAML)
+
+        runner = SessionRunner("test-session-001")
+        runner.status = "running"
+        app.state.runners["test-session-001"] = runner
+
+        r = await client.post("/sessions/test-session-001/run?episodes=1")
+        assert r.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_pause_nonrunning_session_returns_409(self, client: object) -> None:
+        """POST /pause on idle session → 409."""
+        await client.post("/sessions", content=MINIMAL_YAML)  # type: ignore[union-attr]
+        r = await client.post("/sessions/test-session-001/pause")  # type: ignore[union-attr]
+        assert r.status_code == 409
+        assert "not running" in r.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_pause_running_session_ok(self, app_client: object) -> None:
+        """POST /pause on running session sets pause flag."""
+        from roleplay.api.runner import SessionRunner
+
+        app, client = app_client  # type: ignore[misc]
+        await client.post("/sessions", content=MINIMAL_YAML)
+
+        runner = SessionRunner("test-session-001")
+        runner.status = "running"
+        app.state.runners["test-session-001"] = runner
+
+        r = await client.post("/sessions/test-session-001/pause")
+        assert r.status_code == 200
+        assert runner._pause_requested is True
+
+    @pytest.mark.asyncio
+    async def test_inject_inactive_session_returns_409(self, client: object) -> None:
+        """POST /inject on idle session → 409."""
+        await client.post("/sessions", content=MINIMAL_YAML)  # type: ignore[union-attr]
+        r = await client.post(  # type: ignore[union-attr]
+            "/sessions/test-session-001/inject",
+            json={"text": "Something happens."},
+        )
+        assert r.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_inject_running_session_ok(self, app_client: object) -> None:
+        """POST /inject on running session succeeds."""
+        from roleplay.api.runner import SessionRunner
+
+        app, client = app_client  # type: ignore[misc]
+        await client.post("/sessions", content=MINIMAL_YAML)
+
+        runner = SessionRunner("test-session-001")
+        runner.status = "running"
+        app.state.runners["test-session-001"] = runner
+
+        r = await client.post(
+            "/sessions/test-session-001/inject",
+            json={"text": "A storm approaches."},
+        )
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_delete_running_session_returns_409(self, app_client: object) -> None:
+        """DELETE on a running session → 409."""
+        from roleplay.api.runner import SessionRunner
+
+        app, client = app_client  # type: ignore[misc]
+        await client.post("/sessions", content=MINIMAL_YAML)
+
+        runner = SessionRunner("test-session-001")
+        runner.status = "running"
+        app.state.runners["test-session-001"] = runner
+
+        r = await client.delete("/sessions/test-session-001")
+        assert r.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_session_status_returns_runner_status(self, app_client: object) -> None:
+        """_session_status returns runner.status when runner exists."""
+        from roleplay.api.runner import SessionRunner
+
+        app, client = app_client  # type: ignore[misc]
+        await client.post("/sessions", content=MINIMAL_YAML)
+
+        runner = SessionRunner("test-session-001")
+        runner.status = "done"
+        app.state.runners["test-session-001"] = runner
+
+        r = await client.get("/sessions/test-session-001")
+        assert r.status_code == 200
+        assert r.json()["status"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_runner_error_path(self) -> None:
+        """SessionRunner._run sets status=error when engine raises."""
+        import asyncio
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from roleplay.api.runner import SessionRunner
+        from roleplay.persistence.sqlite import SqlitePersistenceLayer
+        from roleplay.scenario_yaml import load_yaml_scenario
+
+        tmpdir = tempfile.mkdtemp(prefix="roleplay_err_", dir="/tmp")
+        db_path = tmpdir + "/test.db"
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+
+        import tempfile as _t
+
+        p = Path(_t.mktemp(suffix=".yaml", dir="/tmp"))
+        p.write_text(MINIMAL_YAML)
+        state = load_yaml_scenario(p).state
+        await layer.create_session(state)
+        p.unlink(missing_ok=True)
+
+        bg_layer = SqlitePersistenceLayer(db_path)
+        await bg_layer.open()
+
+        runner = SessionRunner("test-session-001")
+
+        with patch("roleplay.api.runner._build_registry", side_effect=RuntimeError("boom")):
+            runner.start(state, bg_layer, 1)
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                if runner.status in {"error", "done"}:
+                    break
+
+        assert runner.status == "error"
+        assert "boom" in (runner.error or "")
+        await layer.close()

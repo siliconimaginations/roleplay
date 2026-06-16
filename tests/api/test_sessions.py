@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from httpx import AsyncClient
 
@@ -158,3 +160,36 @@ class TestForkSession:
     async def test_fork_nonexistent_returns_404(self, client: AsyncClient) -> None:
         resp = await client.post("/sessions/ghost/fork")
         assert resp.status_code == 404
+
+
+class TestUnicodeEdgeCases:
+    """Cover the UnicodeDecodeError path in create_session."""
+
+    @pytest.mark.asyncio
+    async def test_create_session_non_utf8_body_returns_422(self, client: AsyncClient) -> None:
+        """POST /sessions with invalid UTF-8 bytes → 422."""
+        r = await client.post(
+            "/sessions",
+            content=b"\xff\xfe invalid utf-8",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert r.status_code == 422
+        assert "UTF-8" in r.json()["detail"]
+
+
+class TestCreateSessionDbFailure:
+    """Cover the 500 path when DB write fails."""
+
+    @pytest.mark.asyncio
+    async def test_create_session_db_error_returns_500(self, client: AsyncClient) -> None:
+        """If create_session raises, return 500."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "roleplay.persistence.sqlite.SqlitePersistenceLayer.create_session",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("disk full"),
+        ):
+            r = await client.post("/sessions", content=MINIMAL_YAML)
+        assert r.status_code == 500
+        assert "disk full" in r.json()["detail"]

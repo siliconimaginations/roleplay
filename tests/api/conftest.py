@@ -85,3 +85,13 @@ async def client_with_key(tmp_path: object) -> None:  # type: ignore[type-arg]
         yield ac
     await layer.close()
     _restore_env(old_env)
+
+
+@pytest_asyncio.fixture
+async def app_client(tmp_path: object) -> None:  # type: ignore[type-arg]
+    """Yield (app, AsyncClient) so tests can manipulate app.state directly."""
+    app, layer, old_env = await _build_app_and_layer(tmp_path, api_key=None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield app, ac
+    await layer.close()
+    _restore_env(old_env)
