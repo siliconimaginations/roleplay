@@ -38,6 +38,11 @@ name = "Riverside Town"
 session_id              = "negotiation-001"   # string, any unique identifier
 provider                = "gemini"            # "gemini" | "claude" | "mock"
 episodes                = 5                   # integer >= 1
+goal                    = "Alice and Acme Corp sign a formal supplier agreement"
+                                              # optional — LLM checks after each episode;
+                                              # simulation halts early when met.
+                                              # Be specific: "verbal commitment on price" works
+                                              # better than "reach a deal".
 context_window_episodes = 5                   # how many past episodes the LLM sees
 memory_max_entries      = 20                  # max memory entries per party
 environment_reactive    = true                # env party gets its own LLM turn per episode
@@ -98,6 +103,7 @@ facts   = [
 | `session_id` | string | `"session-001"` | Identifier for this run |
 | `provider` | string | `"gemini"` | `"gemini"`, `"claude"`, or `"mock"` |
 | `episodes` | integer | `3` | Number of episodes to simulate |
+| `goal` | string | `""` | Natural-language end condition; checked after every episode by the LLM; simulation halts when met |
 | `context_window_episodes` | integer | `5` | Past episodes visible in prompt |
 | `memory_max_entries` | integer | `20` | Max memory entries per party |
 | `environment_reactive` | boolean | `true` | Environment gets its own LLM turn |
@@ -234,6 +240,11 @@ Follow these rules exactly:
    Lists and nested tables are NOT allowed as state values.
 9. Valid provider values: "gemini", "claude", "mock".
 10. All fields in [simulation] are optional; omit any you don't need.
+11. [simulation] goal is an optional string describing the end condition
+    for the simulation. The LLM checks it after every episode and halts
+    early when it is met. Be specific: "Alice verbally commits to the price"
+    is better than "reach an agreement". Omit if you want the simulation to
+    always run for the full episode count.
 
 Output ONLY the TOML — no explanation, no code fences, no markdown.
 
@@ -253,6 +264,14 @@ Scenario: [describe your scenario here]
 - **Use `environment.initial_state` to track dynamic variables** — things that
   might change episode-to-episode (mood, time of day, a revealed piece of
   information) work well as state keys.
+
+- **Write a specific `goal`** — the goal string is evaluated by the LLM
+  after every episode. Vague goals like "reach a deal" are hard for the LLM
+  to evaluate unambiguously. Prefer concrete, observable outcomes:
+  - ✓ `"Alice verbally commits to the proposed price and delivery timeline"`
+  - ✓ `"Both parties sign off on the contract terms without further review needed"`
+  - ✗ `"Alice and Bob agree on a partnership deal"` — too abstract; the parties
+    may have conceptual alignment while the LLM still answers "not yet met"
 
 - **Start with `provider = "mock"` while iterating** — the mock provider runs
   instantly and costs nothing. Switch to `"gemini"` or `"claude"` once the
