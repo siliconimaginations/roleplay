@@ -24,7 +24,7 @@ Multi-party interaction simulator driven by LLM agents.
 | POC | Scenario Runner (poc.py) | ✅ Complete |
 | 6 | Persistence & Session | ✅ Complete |
 | 7 | CLI (roleplay run / inspect / fork) | ✅ Complete |
-| 8 | REST API | 🔲 Planned |
+| 8 | REST API | ✅ Done |
 | 9 | Hardening & CI/CD Maturity | 🔲 Planned |
 
 ---
@@ -217,7 +217,7 @@ Exit criteria met: 443 tests pass; scenario_yaml.py at 92% coverage; all 7 CLI c
 
 ---
 
-## Stage 8 — REST API 🔲
+## Stage 8 — REST API ✅
 
 Expose the simulator as a service.
 

@@ -276,6 +276,67 @@ uv run pytest           # Run tests
 bash scripts/lint.sh    # ruff + mypy
 ```
 
+
+## REST API
+
+Roleplay exposes a FastAPI HTTP/WebSocket server for programmatic control.
+
+### Start the server
+
+```bash
+uv run uvicorn roleplay.api.app:app --reload
+# or with a custom DB and API key:
+ROLEPLAY_DB_PATH=~/my.db ROLEPLAY_API_KEY=secret uv run uvicorn roleplay.api.app:app
+```
+
+### Authentication
+
+When `ROLEPLAY_API_KEY` is set, all requests must include:
+
+```
+X-API-Key: <your-key>
+```
+
+Omit the env var entirely for unauthenticated dev mode.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/sessions` | Create session from YAML body |
+| `GET` | `/sessions` | List all sessions |
+| `GET` | `/sessions/{id}` | Get session detail |
+| `DELETE` | `/sessions/{id}` | Delete a session |
+| `POST` | `/sessions/{id}/fork` | Fork session at current state |
+| `POST` | `/sessions/{id}/run?episodes=N` | Run N episodes (background) |
+| `GET` | `/sessions/{id}/status` | Get run status |
+| `POST` | `/sessions/{id}/pause` | Request pause after current turn |
+| `POST` | `/sessions/{id}/inject` | Inject narrative text into next episode |
+| `WS` | `/sessions/{id}/stream` | WebSocket live event stream |
+
+### Create a session
+
+```bash
+curl -X POST http://localhost:8000/sessions \
+  -H "Content-Type: text/plain" \
+  --data-binary @scenarios/example.yaml
+```
+
+### Run and stream events
+
+```bash
+# Start 3 episodes
+curl -X POST "http://localhost:8000/sessions/example-001/run?episodes=3"
+
+# Stream events via WebSocket (wscat or similar)
+wscat -c "ws://localhost:8000/sessions/example-001/stream"
+```
+
+WebSocket events: `connected`, `episode_start`, `turn`, `episode_end`, `simulation_complete`, `error`, `ping`.
+
+Full API reference: [`docs/engineering/09-api.md`](docs/engineering/09-api.md).
+
 ## Project structure
 
 ```
@@ -286,6 +347,7 @@ roleplay/
 │   ├── memory/         # MemoryStore, compaction, forgetting
 │   ├── providers/      # Gemini, Claude, Mock adapters
 │   ├── persistence/    # SQLite session storage
+│   ├── api/            # FastAPI REST server (app, routes, runner)
 │   ├── cli.py          # roleplay CLI (7 commands)
 │   └── scenario_yaml.py # YAML scenario loader
 ├── tests/
