@@ -384,41 +384,42 @@ async def _run_cmd(
         raise typer.Exit(1) from None
 
     layer = await _open_layer(_db_path(db))
-    memory_store = InMemoryStore()
-    printer = StreamPrinter()
-    observer = CliObserverHook(
-        printer,
-        interactive=interactive,
-        max_episodes=episodes,
-        persistence=layer,
-        session_id=state.config.session_id,
-    )
-
-    await layer.create_session(state)
-    engine = SimulationEngine(
-        state=state,
-        provider=provider_obj,
-        memory_store=memory_store,
-        observer=observer,
-    )
-
     try:
-        await engine.run(max_episodes=episodes)
-    except KeyboardInterrupt:
-        _eprint("\nInterrupted — checkpointing…")
-        await layer.checkpoint(state)
-        await layer.close()
-        raise typer.Exit(3) from None
-    except Exception as exc:
-        _eprint(f"\nRuntime error: {exc}")
-        with contextlib.suppress(Exception):
-            await layer.checkpoint(state)
-        await layer.close()
-        raise typer.Exit(2) from None
+        memory_store = InMemoryStore()
+        printer = StreamPrinter()
+        observer = CliObserverHook(
+            printer,
+            interactive=interactive,
+            max_episodes=episodes,
+            persistence=layer,
+            session_id=state.config.session_id,
+        )
 
-    await layer.save_state(state)
-    await layer.close()
-    typer.echo("\n✅ Simulation complete.")
+        await layer.create_session(state)
+        engine = SimulationEngine(
+            state=state,
+            provider=provider_obj,
+            memory_store=memory_store,
+            observer=observer,
+        )
+
+        try:
+            await engine.run(max_episodes=episodes)
+        except KeyboardInterrupt:
+            _eprint("\nInterrupted — checkpointing…")
+            with contextlib.suppress(Exception):
+                await layer.checkpoint(state)
+            raise typer.Exit(3) from None
+        except Exception as exc:
+            _eprint(f"\nRuntime error: {exc}")
+            with contextlib.suppress(Exception):
+                await layer.checkpoint(state)
+            raise typer.Exit(2) from None
+
+        await layer.save_state(state)
+        typer.echo("\n✅ Simulation complete.")
+    finally:
+        await layer.close()
 
 
 # ---------------------------------------------------------------------------
@@ -452,51 +453,52 @@ async def _resume_cmd(
 
     load_env_file(Path(env_file))
     layer = await _open_layer(_db_path(db))
-
     try:
-        state = await layer.load_session(session_id)
-    except SessionNotFoundError:
-        typer.echo(f"Error: session {session_id!r} not found in {db}", err=True)
+        try:
+            state = await layer.load_session(session_id)
+        except SessionNotFoundError:
+            typer.echo(f"Error: session {session_id!r} not found in {db}", err=True)
+            raise typer.Exit(1) from None
+
+        provider_name = state.config.default_provider
+        provider_obj = ProviderRegistry().get(provider_name)
+        memory_store = InMemoryStore()
+
+        ep_count = len(state.history.completed_episodes())
+        typer.echo(f"Resuming session {session_id!r} from episode {ep_count + 1}…")
+
+        printer = StreamPrinter()
+        observer = CliObserverHook(
+            printer,
+            interactive=interactive,
+            max_episodes=max_episodes,
+            persistence=layer,
+            session_id=session_id,
+        )
+        engine = SimulationEngine(
+            state=state,
+            provider=provider_obj,
+            memory_store=memory_store,
+            observer=observer,
+        )
+
+        try:
+            await engine.run(max_episodes=max_episodes)
+        except KeyboardInterrupt:
+            _eprint("\nInterrupted — checkpointing…")
+            with contextlib.suppress(Exception):
+                await layer.checkpoint(state)
+            raise typer.Exit(3) from None
+        except Exception as exc:
+            _eprint(f"\nRuntime error: {exc}")
+            with contextlib.suppress(Exception):
+                await layer.checkpoint(state)
+            raise typer.Exit(2) from None
+
+        await layer.save_state(state)
+        typer.echo("\n✅ Session complete.")
+    finally:
         await layer.close()
-        raise typer.Exit(1) from None
-
-    provider_name = state.config.default_provider
-    provider_obj = ProviderRegistry().get(provider_name)
-    memory_store = InMemoryStore()
-
-    ep_count = len(state.history.completed_episodes())
-    typer.echo(f"Resuming session {session_id!r} from episode {ep_count + 1}…")
-
-    printer = StreamPrinter()
-    observer = CliObserverHook(
-        printer,
-        interactive=interactive,
-        max_episodes=max_episodes,
-        persistence=layer,
-        session_id=session_id,
-    )
-    engine = SimulationEngine(
-        state=state,
-        provider=provider_obj,
-        memory_store=memory_store,
-        observer=observer,
-    )
-
-    try:
-        await engine.run(max_episodes=max_episodes)
-    except KeyboardInterrupt:
-        _eprint("\nInterrupted — checkpointing…")
-        await layer.checkpoint(state)
-        await layer.close()
-        raise typer.Exit(3) from None
-    except Exception as exc:
-        _eprint(f"\nRuntime error: {exc}")
-        await layer.close()
-        raise typer.Exit(2) from None
-
-    await layer.save_state(state)
-    await layer.close()
-    typer.echo("\n✅ Session complete.")
 
 
 # ---------------------------------------------------------------------------
