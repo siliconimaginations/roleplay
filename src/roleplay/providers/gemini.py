@@ -124,10 +124,13 @@ class GeminiProvider:
                     return None
 
                 # retry-after set → RPM throttle; honour the hint.
+                # After max retries we give up on this *call* but do NOT add the
+                # model to the session skip list — RPM limits are per-minute and
+                # will recover on the next episode.  Only daily-quota exhaustion
+                # (no retry-after) warrants a permanent session ban.
                 if attempt >= _RATE_LIMIT_MAX_RETRIES:
-                    self._session_exhausted.add(model)
                     logger.warning(
-                        "Gemini model %s RPM-limited after %d retries, added to session skip list.",
+                        "Gemini model %s RPM-limited after %d retries, skipping for this call.",
                         model,
                         _RATE_LIMIT_MAX_RETRIES,
                     )

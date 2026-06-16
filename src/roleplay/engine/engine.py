@@ -12,6 +12,7 @@ from roleplay.core.episode import Episode
 from roleplay.core.episode import Turn as CoreTurn
 from roleplay.engine.turn import Turn
 from roleplay.memory.store import MemoryEntry, MemoryKind
+from roleplay.providers.base import ProviderExhaustedError
 
 if TYPE_CHECKING:
     from roleplay.core.party import StateValue
@@ -328,12 +329,21 @@ class SimulationEngine:
         return episode
 
     async def run(self, max_episodes: int | None = None) -> None:
-        """Run episodes until max_episodes reached or observer halts."""
+        """Run episodes until max_episodes reached or observer halts.
+
+        Stops cleanly (without re-raising) when the provider chain is
+        fully exhausted so that callers can still print post-run summaries.
+        """
         count = 0
         while max_episodes is None or count < max_episodes:
             try:
                 await self.run_episode()
             except _HaltSignalError:
+                break
+            except ProviderExhaustedError as exc:
+                logger.warning(
+                    "All providers exhausted after %d episode(s): %s", count, exc
+                )
                 break
             count += 1
 
