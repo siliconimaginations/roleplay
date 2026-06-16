@@ -9,6 +9,7 @@ dist/
 build/
 *.egg
 *.whl
+*.log
 
 # ---- Virtual environments ----
 .venv/
