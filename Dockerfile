@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1
-# ── Stage 1: build — install deps with uv ────────────────────────────────────
+# ── Stage 1: frontend build ───────────────────────────────────────────────────
+FROM node:22-slim AS frontend-builder
+
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci --cache /tmp/npm-cache
+
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Python build — install deps with uv ─────────────────────────────
 FROM python:3.12-slim AS builder
 
 # Install uv
@@ -17,7 +27,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
-# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+# ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
 # Non-root user for security
@@ -30,6 +40,9 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy the installed package source
 COPY --from=builder /app/src ./src
 
+# Copy the compiled frontend assets
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
 # Persistent data directory for SQLite
 RUN mkdir -p /data && chown roleplay:roleplay /data
 
@@ -41,5 +54,4 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 EXPOSE 8000
 
-# uvicorn with websocket support (websockets extra in uvicorn[standard])
 CMD ["uvicorn", "roleplay.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
