@@ -274,8 +274,56 @@ The mock provider returns scripted responses and requires no API key.
 uv sync --group dev
 uv run pytest           # Run tests
 bash scripts/lint.sh    # ruff + mypy
+
+# Frontend
+cd frontend && npm install && npm run build   # production build
+cd frontend && npm run dev                   # dev server with HMR
 ```
 
+
+## Web UI
+
+Roleplay ships a React + Vite single-page application served by the FastAPI backend.
+
+### Development (hot-reload)
+
+```bash
+# Terminal 1 — backend
+ROLEPLAY_API_KEY=dev uv run uvicorn roleplay.api.app:app --reload
+
+# Terminal 2 — frontend dev server (proxies /sessions and /health to :8000)
+cd frontend
+npm install
+npm run dev          # Opens http://localhost:5173
+```
+
+### Production build
+
+```bash
+cd frontend && npm run build   # emits frontend/dist/
+uv run uvicorn roleplay.api.app:app --host 0.0.0.0 --port 8000
+# The API now serves the SPA at / and all non-API paths.
+```
+
+### Docker (includes frontend)
+
+```bash
+docker build -t roleplay .
+docker run -p 8000:8000 -e ROLEPLAY_API_KEY=secret roleplay
+# Visit http://localhost:8000
+```
+
+### Features
+
+| Screen | What you can do |
+|--------|-----------------|
+| **Sessions list** | See all sessions, their status and episode count; refresh auto-polls every 5 s |
+| **Create session** | Paste or edit a YAML scenario and submit — session is created immediately |
+| **Live stream** | Watch turns stream in real time via WebSocket; colour-coded per party |
+| **Run / Pause** | Start N episodes or pause mid-run from the browser |
+| **Inject event** | Push a narrative event into the running simulation |
+| **Inspector** | Browse party state, environment state, and session config |
+| **Fork / Delete** | Fork a session at its current state, or delete it with one click |
 
 ## REST API
 

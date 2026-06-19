@@ -58,3 +58,8 @@ scenarios/*.local.toml
 
 # ---- Local tooling cache ----
 .tools/
+
+# ---- Frontend ----
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

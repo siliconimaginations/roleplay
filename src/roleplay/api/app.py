@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from roleplay.api.routes.health import router as health_router
 from roleplay.api.routes.sessions import router as sessions_router
@@ -14,6 +17,9 @@ from roleplay.api.routes.simulation import router as simulation_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+# Directory where the Vite production build is emitted (`npm run build`).
+_FRONTEND_DIST = Path(__file__).parent.parent.parent.parent / "frontend" / "dist"
 
 
 def _db_path() -> str:
@@ -47,6 +53,20 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(sessions_router)
     app.include_router(simulation_router)
+
+    # Serve the React SPA when the frontend has been built.
+    if _FRONTEND_DIST.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_FRONTEND_DIST / "assets"),
+            name="assets",
+        )
+
+        @app.get("/", include_in_schema=False)
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str = "") -> FileResponse:
+            """Return index.html for all non-API paths (SPA client-side routing)."""
+            return FileResponse(_FRONTEND_DIST / "index.html")
 
     return app
 
