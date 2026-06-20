@@ -39,10 +39,23 @@ export GEMINI_API_KEY=your_key_here
 Create a scenario file (`my_scenario.yaml`):
 
 ```yaml
+description: "A small town drama"
 session_id: my-first-run
+
 config:
   default_provider: gemini
   max_episodes: 5
+  goal: "Alice uncovers the truth or the sheriff reveals his secret"
+
+# Named locations — parties use state.location to move between them
+environments:
+  - id: town_square
+    name: Town Square
+    description: The public centre of Maplewood. Conversations here are overheard.
+
+  - id: sheriffs_office
+    name: Sheriff's Office
+    description: Bob's domain. Files and old case records fill the shelves.
 
 parties:
   - id: alice
@@ -54,6 +67,7 @@ parties:
       traits: [tenacious, skeptical, empathetic]
     state:
       mood: determined
+      location: town_square
 
   - id: bob
     kind: person
@@ -64,6 +78,7 @@ parties:
       traits: [calm, evasive, protective]
     state:
       mood: guarded
+      location: sheriffs_office
 
   - id: maplewood
     kind: environment
@@ -95,13 +110,6 @@ uv run roleplay run my_scenario.yaml
 # Override the number of episodes
 uv run roleplay run my_scenario.yaml --max-episodes 10
 
-# Verbosity levels (default: 1 — full turn dialog)
-uv run roleplay run my_scenario.yaml --verbosity 0   # AI summary per episode only
-uv run roleplay run my_scenario.yaml --verbosity 2   # 80-char excerpts + AI summary
-
-# Show a spinner while waiting for the LLM
-uv run roleplay run my_scenario.yaml --watch
-
 # Use a different LLM provider
 uv run roleplay run my_scenario.yaml --provider mock   # No API key needed
 
@@ -127,7 +135,7 @@ List all saved sessions.
 
 ```bash
 uv run roleplay list
-uv run roleplay list --fmt json    # JSON output
+uv run roleplay list --format json    # JSON output
 ```
 
 ### `roleplay inspect <session_id>`
@@ -139,7 +147,7 @@ uv run roleplay inspect my-first-run
 uv run roleplay inspect my-first-run --party alice        # One party only
 uv run roleplay inspect my-first-run --memories           # Include memories
 uv run roleplay inspect my-first-run --episodes           # Include episode log
-uv run roleplay inspect my-first-run --fmt json
+uv run roleplay inspect my-first-run --format json
 ```
 
 ### `roleplay fork <session_id>`
@@ -155,7 +163,7 @@ uv run roleplay fork my-first-run --new-id my-fork-1
 Delete a specific memory entry from a party.
 
 ```bash
-# Get the entry_id from: roleplay inspect <session_id> --memories --fmt json
+# Get the entry_id from: roleplay inspect <session_id> --memories --format json
 uv run roleplay forget my-first-run alice mem_abc123
 ```
 
@@ -222,7 +230,9 @@ uv run roleplay delete my-first-run --confirm
 |-------|----------|-------------|
 | `parties` | ✅ | List of party objects (must include exactly one `kind: environment`) |
 | `session_id` | — | Unique ID for this session; auto-generated UUID if omitted |
+| `description` | — | Human-readable description of the scenario |
 | `config` | — | Simulation settings (see below) |
+| `environments` | — | Named locations parties can move between (multi-environment support) |
 | `scheduler` | — | Turn order (default: `round_robin`) |
 | `clock` | — | Simulated time (default: `noop`) |
 | `tools` | — | Tool handlers importable via dotted path |
@@ -232,10 +242,14 @@ uv run roleplay delete my-first-run --confirm
 ```yaml
 config:
   default_provider: gemini        # LLM provider: gemini | claude | mock
+  default_model: gemini-2.0-flash # Model override (provider default if omitted)
   max_episodes: 10                # Stop after this many episodes
   context_window_episodes: 5      # How many past episodes the LLM sees
   memory_max_entries: 100         # Max memory entries per party
-  forgetting_enabled: true        # Whether to compact old memories
+  forgetting_enabled: false       # Whether to compact old memories
+  environment_reactive: true      # Environment party takes a turn each episode
+  auto_checkpoint: true           # Save to DB after every episode
+  goal: ""                        # End condition checked by LLM after each episode
 ```
 
 ### Party fields
