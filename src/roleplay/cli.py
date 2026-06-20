@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from roleplay.engine.observer import InjectionPayload, ObserverDirective
     from roleplay.engine.turn import Turn
     from roleplay.persistence import SqlitePersistenceLayer
+    from roleplay.providers.registry import ProviderRegistry
 
 app = typer.Typer(
     name="roleplay",
@@ -343,6 +344,20 @@ def run(
     _run(_run_cmd(scenario, max_episodes, provider, output, interactive, db, env_file))
 
 
+def _make_registry() -> ProviderRegistry:
+    """Build a ProviderRegistry pre-populated with all built-in providers."""
+    from roleplay.providers.claude_provider import ClaudeProvider
+    from roleplay.providers.gemini import GeminiProvider
+    from roleplay.providers.mock import MockProvider
+    from roleplay.providers.registry import ProviderRegistry
+
+    registry = ProviderRegistry()
+    registry.register("gemini", GeminiProvider())
+    registry.register("claude", ClaudeProvider())
+    registry.register("mock", MockProvider())
+    return registry
+
+
 async def _run_cmd(
     scenario: Path,
     max_episodes: int | None,
@@ -354,7 +369,6 @@ async def _run_cmd(
 ) -> None:
     from roleplay.engine.engine import SimulationEngine
     from roleplay.memory.store import InMemoryStore
-    from roleplay.providers.registry import ProviderRegistry
     from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
 
     load_env_file(Path(env_file))
@@ -376,7 +390,7 @@ async def _run_cmd(
     provider_name = provider_override or result.provider_name
     episodes = max_episodes if max_episodes is not None else result.max_episodes
 
-    registry = ProviderRegistry()
+    registry = _make_registry()
     try:
         provider_obj = registry.get(provider_name)
     except Exception as exc:
@@ -449,7 +463,6 @@ async def _resume_cmd(
     from roleplay.engine.engine import SimulationEngine
     from roleplay.memory.store import InMemoryStore
     from roleplay.persistence import SessionNotFoundError
-    from roleplay.providers.registry import ProviderRegistry
 
     load_env_file(Path(env_file))
     layer = await _open_layer(_db_path(db))
@@ -461,7 +474,7 @@ async def _resume_cmd(
             raise typer.Exit(1) from None
 
         provider_name = state.config.default_provider
-        provider_obj = ProviderRegistry().get(provider_name)
+        provider_obj = _make_registry().get(provider_name)
         memory_store = InMemoryStore()
 
         ep_count = len(state.history.completed_episodes())
