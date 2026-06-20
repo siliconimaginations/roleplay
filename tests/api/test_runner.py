@@ -118,9 +118,18 @@ class TestApiObserverHook:
         provider.complete = _complete
         return provider
 
+    def _make_layer(self) -> MagicMock:
+        layer = MagicMock()
+
+        async def _save_episode(session_id: object, ep: object) -> None:
+            pass
+
+        layer.save_episode = _save_episode
+        return layer
+
     async def test_before_episode_broadcasts_start(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner, self._make_provider())
+        hook = ApiObserverHook(runner, self._make_provider(), self._make_layer())
         state = self._make_state()
         q = runner.subscribe()
 
@@ -134,7 +143,7 @@ class TestApiObserverHook:
     async def test_before_episode_halts_when_paused(self) -> None:
         runner = self._make_runner()
         runner._pause_requested = True
-        hook = ApiObserverHook(runner, self._make_provider())
+        hook = ApiObserverHook(runner, self._make_provider(), self._make_layer())
         state = self._make_state()
 
         directive = await hook.before_episode(state, 0)
@@ -145,7 +154,7 @@ class TestApiObserverHook:
 
     async def test_after_turn_broadcasts_turn(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner, self._make_provider())
+        hook = ApiObserverHook(runner, self._make_provider(), self._make_layer())
         state = self._make_state()
         q = runner.subscribe()
 
@@ -163,7 +172,7 @@ class TestApiObserverHook:
 
     async def test_after_episode_increments_count(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner, self._make_provider())
+        hook = ApiObserverHook(runner, self._make_provider(), self._make_layer())
         state = self._make_state()
         state.history.completed_episodes.return_value = [MagicMock()]
         q = runner.subscribe()
