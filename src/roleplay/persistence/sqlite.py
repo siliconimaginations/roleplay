@@ -210,8 +210,6 @@ class SqlitePersistenceLayer:
         for env_id in state.environments.ids():
             named = state.environments.get(env_id)
             if named is not None:
-                import json as _json
-
                 await db.execute(
                     """
                     INSERT OR IGNORE INTO named_environments
@@ -223,7 +221,7 @@ class SqlitePersistenceLayer:
                         state.config.session_id,
                         named.name,
                         named.description,
-                        _json.dumps(dict(named.state) if named.state else {}),
+                        json.dumps(dict(named.state) if named.state else {}),
                     ),
                 )
         await db.commit()
@@ -345,7 +343,6 @@ class SqlitePersistenceLayer:
                 environment = dc_replace(environment, state=pstate)
 
         # Restore named environments (EnvironmentRegistry), closes #90
-        import json as _json
 
         from roleplay.core.environment import Environment, EnvironmentRegistry
 
@@ -363,7 +360,7 @@ class SqlitePersistenceLayer:
                     id=er["env_id"],
                     name=er["name"],
                     description=er["description"],
-                    state={str(k): v for k, v in _json.loads(er["state_json"]).items()},
+                    state={str(k): v for k, v in json.loads(er["state_json"]).items()},
                 )
             )
         env_registry = EnvironmentRegistry(named_envs)
