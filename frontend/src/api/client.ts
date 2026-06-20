@@ -66,11 +66,7 @@ export const runSession = (
   id: string,
   episodes: number,
 ): Promise<RunStatusResponse> =>
-  apiFetch(`/sessions/${id}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ episodes }),
-  });
+  apiFetch(`/sessions/${id}/run?episodes=${episodes}`, { method: "POST" });
 
 export const pauseSession = (id: string): Promise<RunStatusResponse> =>
   apiFetch(`/sessions/${id}/pause`, { method: "POST" });

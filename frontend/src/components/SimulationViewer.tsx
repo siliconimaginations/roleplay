@@ -121,6 +121,26 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
         case "simulation_complete":
           setStatus("done");
           onStatusChange?.("done");
+          // Reload history to guarantee all turns are visible (fast providers
+          // may complete before WS events flush to the client).
+          getSessionHistory(sessionId)
+            .then((eps) => {
+              if (eps.length > 0) {
+                setGroups(
+                  eps.map((ep) => ({
+                    episode: ep.episode,
+                    done: ep.done,
+                    turns: ep.turns.map((t) => ({
+                      episode: t.episode,
+                      party_id: t.party_id,
+                      output: t.output,
+                      proposals: t.state_update_proposals,
+                    })),
+                  })),
+                );
+              }
+            })
+            .catch(() => {});
           break;
         case "error":
           setError(ev.message);
@@ -210,9 +230,9 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
               onChange={(e) => setEpisodes(Math.max(1, Number(e.target.value)))}
               className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <span className="text-xs text-gray-400">episodes</span>
+            <span className="text-xs text-gray-400">more episodes</span>
             <button
-              disabled={!!busyAction || status === "done"}
+              disabled={!!busyAction}
               onClick={() => void handleRun()}
               className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 font-medium disabled:opacity-40"
             >
