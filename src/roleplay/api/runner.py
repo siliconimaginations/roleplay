@@ -73,6 +73,15 @@ class ApiObserverHook:
 
         # Broadcast episode_start
         await self._runner._broadcast({"type": "episode_start", "episode": episode_index})
+
+        # Consume any queued injection and apply it to this episode's context.
+        injection_text = self._runner._pending_injection
+        if injection_text:
+            self._runner._pending_injection = None
+            from roleplay.engine.observer import InjectionPayload
+
+            return ObserverDirective.inject(InjectionPayload(context_override=injection_text))
+
         return ObserverDirective.continue_()
 
     async def after_turn(
@@ -157,6 +166,7 @@ class SessionRunner:
         self.error: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._pause_requested: bool = False
+        self._pending_injection: str | None = None
         self._subscribers: list[asyncio.Queue[dict[str, Any] | None]] = []
 
     # ── Public control API ────────────────────────────────────────────────
@@ -183,11 +193,15 @@ class SessionRunner:
         self._pause_requested = True
 
     async def inject(self, text: str) -> None:
-        """Inject a narrative event into the next episode prompt."""
+        """Queue a narrative event to be applied at the start of the next episode.
 
-        # The injection will be picked up on the next before_episode call.
-        # We store it on the runner and apply it via a one-shot directive.
+        Works whether the session is running (picked up immediately) or paused
+        (picked up when the session is next resumed).  Broadcasts an
+        ``injection`` WS event so connected clients can show the pending event
+        in the timeline before it is consumed.
+        """
         self._pending_injection = text
+        await self._broadcast({"type": "injection", "text": text})
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any] | None]:
         """Return a per-subscriber queue receiving broadcast events.
