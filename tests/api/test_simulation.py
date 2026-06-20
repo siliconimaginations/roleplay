@@ -85,13 +85,14 @@ class TestPauseSession:
 
 
 class TestInjectEvent:
-    async def test_inject_idle_session_returns_409(self, client: AsyncClient) -> None:
+    async def test_inject_idle_session_queues_ok(self, client: AsyncClient) -> None:
+        # Injections on idle sessions are accepted — queued for the first episode.
         sid = await _create_session(client)
         resp = await client.post(
             f"/sessions/{sid}/inject",
             json={"text": "Something dramatic happens."},
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 200
 
     async def test_inject_empty_text_returns_422(self, client: AsyncClient) -> None:
         sid = await _create_session(client)
@@ -174,14 +175,14 @@ class TestCoverageGaps:
         assert runner._pause_requested is True
 
     @pytest.mark.asyncio
-    async def test_inject_inactive_session_returns_409(self, client: object) -> None:
-        """POST /inject on idle session → 409."""
+    async def test_inject_idle_session_accepted(self, client: object) -> None:
+        """POST /inject on idle session → 200 (queued for first episode)."""
         await client.post("/sessions", content=MINIMAL_YAML)  # type: ignore[union-attr]
         r = await client.post(  # type: ignore[union-attr]
             "/sessions/test-session-001/inject",
             json={"text": "Something happens."},
         )
-        assert r.status_code == 409
+        assert r.status_code == 200
 
     @pytest.mark.asyncio
     async def test_inject_running_session_ok(self, app_client: object) -> None:
