@@ -79,6 +79,7 @@ class ApiObserverHook:
         if injection_text:
             self._runner._pending_injection = None
             from roleplay.engine.observer import InjectionPayload
+
             return ObserverDirective.inject(InjectionPayload(context_override=injection_text))
 
         return ObserverDirective.continue_()
