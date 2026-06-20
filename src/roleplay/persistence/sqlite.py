@@ -183,8 +183,49 @@ class SqlitePersistenceLayer:
                     encode_persona(party.persona),
                 ),
             )
+        # Flush any initial state_changes (from state: in YAML scenario).
+        # Without this, load_session would restore all parties with empty state.
+        session_id = state.config.session_id
+        written = self._written_change_ids.setdefault(session_id, set())
+        all_parties = [*state.parties.values(), state.environment]
+        init_rows: list[dict[str, object]] = []
+        for party in all_parties:
+            for change in party.state_history:
+                change_key = f"{party.id}:{change.key}:{change.episode_index}"
+                if change_key not in written:
+                    init_rows.append(encode_state_change_row(session_id, party.id, change))
+                    written.add(change_key)
+        if init_rows:
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO state_changes
+                  (id, party_id, session_id, key,
+                   old_value_json, new_value_json, episode_index, reason)
+                VALUES (:id, :party_id, :session_id, :key,
+                        :old_value_json, :new_value_json, :episode_index, :reason)
+                """,
+                init_rows,
+            )
+        # Upsert named environments (EnvironmentRegistry), closes #90
+        for env_id in state.environments.ids():
+            named = state.environments.get(env_id)
+            if named is not None:
+                import json as _json
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO named_environments
+                      (env_id, session_id, name, description, state_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        named.id,
+                        state.config.session_id,
+                        named.name,
+                        named.description,
+                        _json.dumps(dict(named.state) if named.state else {}),
+                    ),
+                )
         await db.commit()
-        self._written_change_ids.setdefault(state.config.session_id, set())
 
     async def save_state(self, state: SimulationState) -> None:
         """Persist new state_changes rows and update last_saved_at."""
@@ -302,6 +343,29 @@ class SqlitePersistenceLayer:
             elif environment and pid == environment.id:
                 environment = dc_replace(environment, state=pstate)
 
+        # Restore named environments (EnvironmentRegistry), closes #90
+        import json as _json
+        from roleplay.core.environment import Environment, EnvironmentRegistry
+
+        env_rows = await (
+            await db.execute(
+                "SELECT env_id, name, description, state_json "
+                "FROM named_environments WHERE session_id = ?",
+                (session_id,),
+            )
+        ).fetchall()
+        named_envs: list[Environment] = []
+        for er in env_rows:
+            named_envs.append(
+                Environment(
+                    id=er["env_id"],
+                    name=er["name"],
+                    description=er["description"],
+                    state={str(k): v for k, v in _json.loads(er["state_json"]).items()},
+                )
+            )
+        env_registry = EnvironmentRegistry(named_envs)
+
         # Load history (completed episodes only)
         history = await self.load_history(session_id)
 
@@ -315,6 +379,7 @@ class SqlitePersistenceLayer:
             history=history,
             scheduler=RoundRobinScheduler(),
             clock=NoopClock(),
+            environments=env_registry,
         )
 
     async def list_sessions(self) -> list[SessionSummary]:
@@ -361,6 +426,7 @@ class SqlitePersistenceLayer:
             "state_changes",
             "episodes",
             "parties",
+            "named_environments",
             "sessions",
         ):
             await db.execute(
@@ -789,6 +855,23 @@ class SqlitePersistenceLayer:
                         mr["created_at"],
                         mr["forgotten"],
                     ),
+                )
+
+            # Copy named environments, closes #90
+            ne_rows = await (
+                await db.execute(
+                    "SELECT env_id, name, description, state_json "
+                    "FROM named_environments WHERE session_id = ?",
+                    (session_id,),
+                )
+            ).fetchall()
+            for ne in ne_rows:
+                await db.execute(
+                    "INSERT INTO named_environments "
+                    "(env_id, session_id, name, description, state_json) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (ne["env_id"], new_session_id, ne["name"],
+                     ne["description"], ne["state_json"]),
                 )
 
             await db.commit()
