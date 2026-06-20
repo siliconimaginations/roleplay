@@ -60,6 +60,19 @@ export interface ValidationResult {
   errors: string[];
 }
 
+export interface GenerateResult { yaml: string; }
+
+export const generateSession = async (prompt: string): Promise<GenerateResult> => {
+  const headers: Record<string, string> = { "Content-Type": "text/plain" };
+  if (_apiKey) headers["X-API-Key"] = _apiKey;
+  const res = await fetch("/sessions/generate", { method: "POST", headers, body: prompt });
+  if (res.ok) {
+    return res.json() as Promise<GenerateResult>;
+  }
+  const text = await res.text().catch(() => res.statusText);
+  throw new ApiError(res.status, text);
+};
+
 export const validateSession = async (yaml: string): Promise<ValidationResult> => {
   const headers: Record<string, string> = { "Content-Type": "text/plain" };
   if (_apiKey) headers["X-API-Key"] = _apiKey;

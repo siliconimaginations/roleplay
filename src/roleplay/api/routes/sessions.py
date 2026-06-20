@@ -351,3 +351,66 @@ async def get_session_history(
             }
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# POST /sessions/generate
+# ---------------------------------------------------------------------------
+
+
+@router.post("/generate", response_model=None)
+async def generate_session_yaml(
+    request: Request,
+    _auth: Auth,
+) -> dict[str, object] | JSONResponse:
+    """Generate a YAML scenario from a natural-language prompt.
+
+    **Request body** — plain text (``Content-Type: text/plain``):
+    A natural-language description of the desired scenario.
+
+    **Response** — JSON::
+
+        {"yaml": "<generated YAML string>"}
+
+    Returns HTTP 422 if the body is empty or if the provider call fails.
+    """
+    from roleplay.api.runner import _build_registry
+    from roleplay.generate import generate_yaml_scenario
+    from roleplay.providers.base import ProviderError
+
+    body = await request.body()
+    try:
+        prompt = body.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Request body must be valid UTF-8 text"},
+        )
+
+    if not prompt:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Prompt must not be empty"},
+        )
+
+    registry = _build_registry()
+    # Prefer gemini, fall back to claude, then mock
+    for name in ("gemini", "claude", "mock"):
+        if name in registry:
+            provider = registry.get(name)
+            break
+
+    try:
+        yaml_text = await generate_yaml_scenario(prompt, provider)
+    except ProviderError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": f"Provider error: {exc}"},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Generation failed: {exc}"},
+        )
+
+    return {"yaml": yaml_text}
