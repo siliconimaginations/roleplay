@@ -55,6 +55,23 @@ export const createSession = (yaml: string): Promise<SessionSummary> =>
     body: yaml,
   });
 
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export const validateSession = async (yaml: string): Promise<ValidationResult> => {
+  const headers: Record<string, string> = { "Content-Type": "text/plain" };
+  if (_apiKey) headers["X-API-Key"] = _apiKey;
+  const res = await fetch("/sessions/validate", { method: "POST", headers, body: yaml });
+  // 200 = valid, 422 = invalid — both are expected results, not errors.
+  if (res.status === 200 || res.status === 422) {
+    return res.json() as Promise<ValidationResult>;
+  }
+  const text = await res.text().catch(() => res.statusText);
+  throw new ApiError(res.status, text);
+};
+
 export const deleteSession = (id: string): Promise<void> =>
   apiFetch(`/sessions/${id}`, { method: "DELETE" });
 

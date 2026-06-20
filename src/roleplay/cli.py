@@ -751,6 +751,40 @@ async def _delete_cmd(session_id: str, db: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# roleplay validate
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def validate(
+    scenario: Annotated[Path, typer.Argument(help="Path to YAML scenario file")],
+) -> None:
+    """Validate a YAML scenario file without creating a session."""
+    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
+
+    if not scenario.exists():
+        typer.echo(f"Error: file not found: {scenario}", err=True)
+        raise typer.Exit(1)
+
+    content = scenario.read_text(encoding="utf-8")
+    if not content.strip():
+        typer.echo(f"Error: {scenario} is empty", err=True)
+        raise typer.Exit(1)
+
+    try:
+        load_yaml_scenario(scenario)
+        typer.echo(f"✓ {scenario} is valid.")
+    except ValidationError as exc:
+        typer.echo(f"✗ {scenario} has {len(exc.errors)} error(s):", err=True)
+        for err in exc.errors:
+            typer.echo(f"  • {err}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        typer.echo(f"✗ Failed to parse {scenario}: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

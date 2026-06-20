@@ -6,6 +6,7 @@ import uuid
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from roleplay.api.auth import require_api_key
 from roleplay.api.schemas import PartySchema, SessionDetail, SessionSummary
@@ -252,6 +253,63 @@ async def fork_session(
         episode_count=0,
         status="idle",
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /sessions/validate — validate YAML without creating a session
+# ---------------------------------------------------------------------------
+
+
+@router.post("/validate", response_model=None)
+async def validate_session(
+    request: Request,
+    _auth: Auth,
+) -> dict[str, object] | JSONResponse:
+    """Validate a YAML scenario body without persisting anything.
+
+    Returns ``{"valid": true}`` on success or
+    ``{"valid": false, "errors": [...]}`` with a list of human-readable
+    error strings on failure.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
+
+    body = await request.body()
+    try:
+        yaml_text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": ["Request body must be valid UTF-8 YAML text"]},
+        )
+
+    if not yaml_text.strip():
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": ["Scenario is empty"]},
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as tmp:
+        tmp.write(yaml_text)
+        tmp_path = Path(tmp.name)
+
+    try:
+        load_yaml_scenario(tmp_path)
+        return {"valid": True, "errors": []}
+    except ValidationError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": exc.errors},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": [f"Invalid YAML: {exc}"]},
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
