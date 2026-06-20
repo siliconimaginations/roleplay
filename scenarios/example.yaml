@@ -19,6 +19,7 @@ session_id: "example-001"
 # ---------------------------------------------------------------------------
 config:
   default_provider: gemini       # gemini | claude | mock
+  default_model: gemini-2.0-flash  # optional — overrides the provider default fallback chain
   max_episodes: 3
   context_window_episodes: 5
   memory_max_entries: 20
