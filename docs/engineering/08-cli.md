@@ -282,6 +282,76 @@ Usage: roleplay forget SESSION_ID PARTY_ID ENTRY_ID [--db TEXT]
 Useful for scenario editing and selective amnesia injection without entering
 interactive mode.
 
+### `roleplay validate <scenario.yaml>`
+
+Validate a scenario file without creating a session. Exits 0 on success, 1 on any error.
+
+```
+Usage: roleplay validate [OPTIONS] FILES...
+
+Options:
+  --quiet / -q   Suppress warnings; only print errors.
+```
+
+```bash
+uv run roleplay validate my_scenario.yaml
+# ✓ my_scenario.yaml is valid.
+
+uv run roleplay validate bad.yaml
+# ✗ bad.yaml has 2 error(s):
+#   parties: must include exactly one kind=environment party
+#   parties[0].persona.description: required field missing
+```
+
+Accepts multiple files; prints a result block for each. The exit code is 1 if any file is invalid.
+
+### `roleplay export <session_id>`
+
+Export a session's current state as JSON. Includes party personas, episode history with AI summaries, injection markers, and named environments.
+
+```
+Usage: roleplay export [OPTIONS] SESSION_ID
+
+Options:
+  --output / -o TEXT   Write JSON to this file instead of stdout.
+  --db TEXT            Path to SQLite DB file (default: ./roleplay.db).
+```
+
+```bash
+# Print to stdout
+uv run roleplay export my-session
+
+# Save to file
+uv run roleplay export my-session -o archive.json
+```
+
+The export format is:
+
+```json
+{
+  "session_id": "my-session",
+  "parties": [
+    {
+      "id": "alice",
+      "name": "Alice",
+      "kind": "person",
+      "persona": { "description": "...", "goals": ["..."] }
+    }
+  ],
+  "environment": { "id": "world", "name": "World", "persona": {} },
+  "environments": [
+    { "id": "hall", "name": "Hallway", "description": "A corridor." }
+  ],
+  "episodes": [
+    {
+      "episode": 0,
+      "summary": "Alice and Bob discussed the contract.",
+      "turns": [{ "party_id": "alice", "output": "..." }]
+    }
+  ]
+}
+```
+
 ### `roleplay delete <session_id>`
 
 Delete a session and all its data.
