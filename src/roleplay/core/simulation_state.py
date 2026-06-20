@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from roleplay.core.environment import EnvironmentRegistry
 from roleplay.core.party import Party, PartyKind
 
 if TYPE_CHECKING:
-    from roleplay.core.environment import EnvironmentRegistry
     from roleplay.core.episode import SimulatedTimeClock, SimulationHistory, TurnScheduler
 
 
@@ -46,12 +46,6 @@ class SimulationConfig:
     goal: str = ""  # Optional end condition; checked after every episode via LLM.
 
 
-def _empty_registry() -> EnvironmentRegistry:
-    from roleplay.core.environment import EnvironmentRegistry
-
-    return EnvironmentRegistry()
-
-
 @dataclass
 class SimulationState:
     """Single source of truth for a running simulation.
@@ -67,7 +61,7 @@ class SimulationState:
     scheduler: TurnScheduler
     clock: SimulatedTimeClock
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    environments: EnvironmentRegistry = field(default_factory=lambda: _empty_registry())
+    environments: EnvironmentRegistry = field(default_factory=EnvironmentRegistry)
 
     def __post_init__(self) -> None:
         if self.environment.kind is not PartyKind.ENVIRONMENT:

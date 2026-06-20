@@ -288,14 +288,20 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
     # ── Environments ─────────────────────────────────────────────────────────
     named_environments: list[Environment] = []
     for e in data.get("environments", []):
-        named_environments.append(
-            Environment(
-                id=str(e["id"]),
-                name=str(e["name"]),
-                description=str(e["description"]),
-                state={str(k): v for k, v in e.get("state", {}).items()},
+        # Entries missing id/name/description are caught by _collect_errors;
+        # skip them here so a partial error list doesn't cause a KeyError.
+        env_id = e.get("id")
+        env_name = e.get("name")
+        env_desc = e.get("description")
+        if env_id and env_name and env_desc:
+            named_environments.append(
+                Environment(
+                    id=str(env_id),
+                    name=str(env_name),
+                    description=str(env_desc),
+                    state={str(k): v for k, v in e.get("state", {}).items()},
+                )
             )
-        )
     env_registry = EnvironmentRegistry(named_environments)
 
     # ── Clock & Scheduler ────────────────────────────────────────────────────

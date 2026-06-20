@@ -107,8 +107,10 @@ def _assemble_prompt(
             if named_env is not None:
                 env_lines.append(f"\nCurrent location: {named_env.name}")
                 env_lines.append(f"  {named_env.description}")
-                for k, v in named_env.state.items():
-                    env_lines.append(f"  {k}: {v}")
+                if named_env.state:
+                    env_lines.append("  Location state:")
+                    for k, v in named_env.state.items():
+                        env_lines.append(f"    {k}: {v}")
             else:
                 env_lines.append(f"\nCurrent location: {party_location} (unknown)")
 
