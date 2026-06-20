@@ -264,7 +264,7 @@ async def fork_session(
 async def validate_session(
     request: Request,
     _auth: Auth,
-) -> dict[str, object]:
+) -> dict[str, object] | JSONResponse:
     """Validate a YAML scenario body without persisting anything.
 
     Returns ``{"valid": true}`` on success or
