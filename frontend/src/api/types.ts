@@ -68,13 +68,19 @@ export interface ConnectedEvent {
   type: "connected";
 }
 
+export interface InjectionEvent {
+  type: "injection";
+  text: string;
+}
+
 export type WsEvent =
   | TurnEvent
   | EpisodeStartEvent
   | EpisodeEndEvent
   | SimulationCompleteEvent
   | ErrorEvent
-  | ConnectedEvent;
+  | ConnectedEvent
+  | InjectionEvent;
 
 export interface HistoryTurn {
   episode: number;

@@ -46,6 +46,8 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   const [error, setError] = useState<string | null>(null);
   // "summary" = one-line per episode; "detail" = full turn dialog + summary
   const [viewMode, setViewMode] = useState<"summary" | "detail">("detail");
+  // Injections that have been submitted but not yet consumed by an episode
+  const [pendingInjections, setPendingInjections] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<SimulationStream | null>(null);
 
@@ -88,6 +90,10 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     const offStatus = stream.onStatus((connected) => setWsConnected(connected));
     const offEvents = stream.on((ev: WsEvent) => {
       switch (ev.type) {
+        case "injection":
+          // Show the pending injection in the timeline until the next episode consumes it.
+          setPendingInjections((prev) => [...prev, ev.text]);
+          break;
         case "connected":
           // WS is live — backfill any episodes that completed before we connected
           // (incremental DB persistence means history is up-to-date mid-run).
@@ -118,6 +124,8 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
             .catch(() => {});
           break;
         case "episode_start":
+          // Clear any pending injections — they are consumed at the start of this episode.
+          setPendingInjections([]);
           setGroups((g) => {
             if (g.find((x) => x.episode === ev.episode)) return g;
             return [...g, { episode: ev.episode, turns: [], done: false, summary: "" }];
@@ -321,7 +329,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-purple-500"
         />
         <button
-          disabled={!injectText.trim() || !!busyAction}
+          disabled={!injectText.trim() || !!busyAction || (status !== "running" && status !== "paused")}
           onClick={() => void handleInject()}
           className="px-3 py-1 text-xs rounded bg-purple-700 hover:bg-purple-600 font-medium disabled:opacity-40"
         >
@@ -424,6 +432,25 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
               </div>
             ))}
           </>
+        )}
+
+        {/* Pending injections — queued but not yet consumed by an episode */}
+        {pendingInjections.length > 0 && (
+          <div className="space-y-2">
+            {pendingInjections.map((text, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-700/60 bg-amber-950/30"
+              >
+                <span className="text-xs font-semibold text-amber-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
+                  ↳ Injected
+                </span>
+                <span className="text-xs text-amber-300/90 leading-relaxed flex-1">
+                  {text}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
 
         <div ref={bottomRef} />
