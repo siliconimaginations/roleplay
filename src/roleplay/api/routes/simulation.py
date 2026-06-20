@@ -143,7 +143,7 @@ async def inject_event(
 ) -> RunStatus:
     """Inject a narrative event into the running simulation."""
     runner = _get_runner(request, session_id)
-    if runner.status not in {"running", "paused"}:
+    if runner.status not in {"running", "paused", "idle"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Session is not active (status={runner.status!r})",

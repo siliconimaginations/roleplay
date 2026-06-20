@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WsEvent, RunStatus, RunStatusResponse } from "../api/types";
 import { SimulationStream } from "../api/ws";
-import { runSession, pauseSession, injectEvent, getSessionStatus, getSessionHistory } from "../api/client";
+import { runSession, pauseSession, injectEvent, getSessionStatus, getSessionHistory, getSessionYaml } from "../api/client";
 
 interface TurnCard {
   episode: number;
@@ -15,6 +15,13 @@ interface EpisodeGroup {
   turns: TurnCard[];
   done: boolean;
   summary: string;
+}
+
+/** A past injection tied to the episode that consumed it. */
+interface InjectionRecord {
+  text: string;
+  /** Episode index that consumed this injection (set on episode_start). */
+  beforeEpisode: number;
 }
 
 const PARTY_COLORS: string[] = [
@@ -46,8 +53,17 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   const [error, setError] = useState<string | null>(null);
   // "summary" = one-line per episode; "detail" = full turn dialog + summary
   const [viewMode, setViewMode] = useState<"summary" | "detail">("detail");
-  // Injections that have been submitted but not yet consumed by an episode
+
+  // Injections submitted but not yet consumed by an episode
   const [pendingInjections, setPendingInjections] = useState<string[]>([]);
+  // Permanent log: injections that were consumed, keyed to the consuming episode
+  const [injectionLog, setInjectionLog] = useState<InjectionRecord[]>([]);
+
+  // YAML config modal
+  const [showYaml, setShowYaml] = useState(false);
+  const [yamlContent, setYamlContent] = useState<string | null>(null);
+  const [yamlLoading, setYamlLoading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<SimulationStream | null>(null);
 
@@ -91,7 +107,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     const offEvents = stream.on((ev: WsEvent) => {
       switch (ev.type) {
         case "injection":
-          // Show the pending injection in the timeline until the next episode consumes it.
+          // Track as pending until the next episode_start consumes it.
           setPendingInjections((prev) => [...prev, ev.text]);
           break;
         case "connected":
@@ -101,7 +117,6 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
             .then((eps) => {
               if (eps.length > 0) {
                 setGroups((prev) => {
-                  // Merge: keep WS-tracked episodes, fill in any gaps from history.
                   const known = new Set(prev.map((g) => g.episode));
                   const missing = eps
                     .filter((ep) => !known.has(ep.episode))
@@ -124,8 +139,18 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
             .catch(() => {});
           break;
         case "episode_start":
-          // Clear any pending injections — they are consumed at the start of this episode.
-          setPendingInjections([]);
+          // Move all current pending injections into the permanent log,
+          // tied to this episode so they render in the right place.
+          setPendingInjections((prev) => {
+            if (prev.length > 0) {
+              const records: InjectionRecord[] = prev.map((text) => ({
+                text,
+                beforeEpisode: ev.episode,
+              }));
+              setInjectionLog((log) => [...log, ...records]);
+            }
+            return [];
+          });
           setGroups((g) => {
             if (g.find((x) => x.episode === ev.episode)) return g;
             return [...g, { episode: ev.episode, turns: [], done: false, summary: "" }];
@@ -236,6 +261,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   async function handleInject() {
     if (!injectText.trim()) return;
     setBusyAction("inject");
+    setError(null);
     try {
       await injectEvent(sessionId, injectText);
       setInjectText("");
@@ -246,7 +272,23 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     }
   }
 
+  async function handleShowYaml() {
+    setShowYaml(true);
+    if (yamlContent !== null) return; // already fetched
+    setYamlLoading(true);
+    try {
+      const r = await getSessionYaml(sessionId);
+      setYamlContent(r.yaml);
+    } catch (e) {
+      setYamlContent(`# Error loading config\n# ${String(e)}`);
+    } finally {
+      setYamlLoading(false);
+    }
+  }
+
   const isRunning = status === "running";
+  // Enable inject for any state where a future episode might consume it.
+  const canInject = status === "idle" || status === "running" || status === "paused";
 
   return (
     <div className="flex flex-col h-full">
@@ -295,6 +337,15 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
 
         <div className="flex-1" />
 
+        {/* Show config button */}
+        <button
+          onClick={() => void handleShowYaml()}
+          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 font-medium text-gray-300"
+          title="View scenario YAML config"
+        >
+          ⚙ Config
+        </button>
+
         {/* View mode toggle */}
         <div className="flex items-center gap-1 bg-gray-800 rounded p-0.5">
           <button
@@ -329,9 +380,10 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-purple-500"
         />
         <button
-          disabled={!injectText.trim() || !!busyAction || (status !== "running" && status !== "paused")}
+          disabled={!injectText.trim() || !!busyAction || !canInject}
           onClick={() => void handleInject()}
           className="px-3 py-1 text-xs rounded bg-purple-700 hover:bg-purple-600 font-medium disabled:opacity-40"
+          title={!canInject ? "Session is done or errored" : "Inject a narrative event"}
         >
           Inject
         </button>
@@ -356,23 +408,28 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           /* ── Summary view ── */
           <div className="space-y-2">
             {groups.map((ep) => (
-              <div
-                key={ep.episode}
-                className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-gray-900/50 border border-gray-800"
-              >
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
-                  Ep {ep.episode + 1}
-                </span>
-                <span className="text-sm text-gray-300 leading-relaxed flex-1">
-                  {ep.done
-                    ? ep.summary || (
-                        <span className="text-gray-600 italic">No summary available.</span>
-                      )
-                    : <span className="text-gray-600 italic">Running…</span>}
-                </span>
-                {ep.done && (
-                  <span className="text-xs text-green-700 pt-0.5">✓</span>
-                )}
+              <div key={ep.episode}>
+                {/* Injection markers that precede this episode */}
+                {injectionLog
+                  .filter((r) => r.beforeEpisode === ep.episode)
+                  .map((r, i) => (
+                    <InjectionMarker key={`inj-${ep.episode}-${i}`} text={r.text} />
+                  ))}
+                <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-gray-900/50 border border-gray-800">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
+                    Ep {ep.episode + 1}
+                  </span>
+                  <span className="text-sm text-gray-300 leading-relaxed flex-1">
+                    {ep.done
+                      ? ep.summary || (
+                          <span className="text-gray-600 italic">No summary available.</span>
+                        )
+                      : <span className="text-gray-600 italic">Running…</span>}
+                  </span>
+                  {ep.done && (
+                    <span className="text-xs text-green-700 pt-0.5">✓</span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -381,6 +438,13 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           <>
             {groups.map((ep) => (
               <div key={ep.episode}>
+                {/* Injection markers that precede this episode */}
+                {injectionLog
+                  .filter((r) => r.beforeEpisode === ep.episode)
+                  .map((r, i) => (
+                    <InjectionMarker key={`inj-${ep.episode}-${i}`} text={r.text} />
+                  ))}
+
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Episode {ep.episode + 1}
@@ -434,27 +498,61 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           </>
         )}
 
-        {/* Pending injections — queued but not yet consumed by an episode */}
+        {/* Pending injections — submitted but not yet consumed by an episode */}
         {pendingInjections.length > 0 && (
           <div className="space-y-2">
             {pendingInjections.map((text, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-700/60 bg-amber-950/30"
-              >
-                <span className="text-xs font-semibold text-amber-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
-                  ↳ Injected
-                </span>
-                <span className="text-xs text-amber-300/90 leading-relaxed flex-1">
-                  {text}
-                </span>
-              </div>
+              <InjectionMarker key={i} text={text} pending />
             ))}
           </div>
         )}
 
         <div ref={bottomRef} />
       </div>
+
+      {/* YAML config modal */}
+      {showYaml && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setShowYaml(false)}
+        >
+          <div
+            className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <span className="text-sm font-semibold text-gray-300">Scenario Config</span>
+              <button
+                onClick={() => setShowYaml(false)}
+                className="text-gray-500 hover:text-gray-300 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {yamlLoading ? (
+                <div className="text-xs text-gray-500 text-center py-8">Loading…</div>
+              ) : (
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
+                  {yamlContent}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Amber banner shown for injected narrative events. */
+function InjectionMarker({ text, pending = false }: { text: string; pending?: boolean }) {
+  return (
+    <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-700/60 bg-amber-950/30 mb-2">
+      <span className="text-xs font-semibold text-amber-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
+        {pending ? "⏳ Injected" : "↳ Injected"}
+      </span>
+      <span className="text-xs text-amber-300/90 leading-relaxed flex-1">{text}</span>
     </div>
   );
 }

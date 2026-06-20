@@ -414,3 +414,105 @@ async def generate_session_yaml(
         )
 
     return {"yaml": yaml_text}
+
+
+# ---------------------------------------------------------------------------
+# GET /sessions/{session_id}/yaml
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/yaml", response_model=None)
+async def get_session_yaml(
+    session_id: str,
+    request: Request,
+    _auth: Auth,
+) -> dict[str, str]:
+    """Return a YAML representation of the session's scenario config.
+
+    Reconstructs the scenario from the persisted :class:`SimulationState` so
+    the caller can inspect goals, parties, personas, and environments without
+    needing the original file.
+    """
+    import yaml
+
+    layer = _layer(request)
+    try:
+        state = await layer.load_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
+
+    cfg = state.config
+
+    def _persona_dict(persona: object) -> dict[str, object]:
+        d: dict[str, object] = {}
+        desc = getattr(persona, "description", None)
+        if desc:
+            d["description"] = desc
+        goals = getattr(persona, "goals", None)
+        if goals:
+            d["goals"] = list(goals)
+        traits = getattr(persona, "traits", None)
+        if traits:
+            d["traits"] = list(traits)
+        knowledge = getattr(persona, "knowledge", None)
+        if knowledge:
+            d["knowledge"] = list(knowledge)
+        constraints = getattr(persona, "constraints", None)
+        if constraints:
+            d["constraints"] = list(constraints)
+        return d
+
+    parties_list = []
+    for p in state.parties.values():
+        pd: dict[str, object] = {"id": p.id, "name": p.name, "kind": p.kind.value}
+        persona_d = _persona_dict(p.persona)
+        if persona_d:
+            pd["persona"] = persona_d
+        if p.state_snapshot():
+            pd["initial_state"] = dict(p.state_snapshot())
+        parties_list.append(pd)
+
+    # Environment party
+    env = state.environment
+    env_dict: dict[str, object] = {
+        "id": env.id,
+        "name": env.name,
+        "description": getattr(env.persona, "description", ""),
+    }
+    if env.state_snapshot():
+        env_dict["initial_state"] = dict(env.state_snapshot())
+
+    # Named environments
+    envs_list: list[dict[str, object]] = []
+    for env_id in state.environments.ids():
+        named = state.environments.get(env_id)
+        if named is not None:
+            ed: dict[str, object] = {
+                "id": named.id,
+                "name": named.name,
+                "description": named.description,
+            }
+            if named.state:
+                ed["state"] = dict(named.state)
+            envs_list.append(ed)
+
+    doc: dict[str, object] = {
+        "session_id": session_id,
+        "config": {
+            "default_provider": cfg.default_provider,
+            "context_window_episodes": cfg.context_window_episodes,
+            "memory_max_entries": cfg.memory_max_entries,
+            "environment_reactive": cfg.environment_reactive,
+        },
+        "goal": cfg.goal or None,
+        "environment": env_dict,
+        "parties": parties_list,
+    }
+    if envs_list:
+        doc["environments"] = envs_list
+
+    # Remove None values at top level
+    doc = {k: v for k, v in doc.items() if v is not None}
+
+    yaml_text = yaml.dump(doc, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return {"yaml": yaml_text}
