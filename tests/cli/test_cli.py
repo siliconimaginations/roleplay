@@ -234,6 +234,17 @@ class TestCliObserverHook:
             directive = await hook.before_episode(_make_state(), 0)
         assert directive.is_inject
 
+    @pytest.mark.asyncio
+    async def test_quit_with_no_persistence_halts(self) -> None:
+        # Covers the `if self._persistence:` False branch inside _run_intervention
+        hook = CliObserverHook(StreamPrinter(), interactive=False, session_id="s")
+        hook._pause_flag.set()
+        # Feed "q" through the executor so the quit branch runs without persistence
+        with patch("roleplay.cli.asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = AsyncMock(return_value="q")
+            directive = await hook.before_episode(_make_state(), 0)
+        assert directive.is_halt
+
 
 # ---------------------------------------------------------------------------
 # CLI commands
@@ -550,3 +561,376 @@ class TestHelpCommand:
 
     def test_list_help(self) -> None:
         assert runner.invoke(app, ["list", "--help"]).exit_code == 0
+
+
+class TestExportCommand:
+    def _state_fixture(self) -> object:
+        from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
+        from roleplay.core.party import make_environment, make_person
+        from roleplay.core.simulation_state import SimulationConfig, SimulationState
+
+        return SimulationState(
+            config=SimulationConfig(session_id="exp-session", default_provider="mock"),
+            parties={"alice": make_person("alice", "Alice", description="Adventurer")},
+            environment=make_environment("room", "Room", "A quiet room"),
+            history=SimulationHistory(),
+            scheduler=RoundRobinScheduler(),
+            clock=NoopClock(),
+        )
+
+    def test_not_found_exits_1(self, tmp_path: Path) -> None:
+        from roleplay.persistence import SessionNotFoundError
+
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(side_effect=SessionNotFoundError("gone"))
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "nope", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_export_writes_to_stdout(self, tmp_path: Path) -> None:
+        import json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._state_fixture()
+        history = SimulationHistory()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=history)
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "exp-session", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = json.loads(result.output)
+        assert doc["export_version"] == "1"
+        assert doc["session"]["id"] == "exp-session"
+        assert isinstance(doc["parties"], list)
+
+    def test_export_parties_include_persona(self, tmp_path: Path) -> None:
+        import json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._state_fixture()
+        history = SimulationHistory()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=history)
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "exp-session", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = json.loads(result.output)
+        alice = next(p for p in doc["parties"] if p["id"] == "alice")
+        assert "persona" in alice
+        assert alice["persona"]["description"] == "Adventurer"
+
+    def test_export_writes_to_file(self, tmp_path: Path) -> None:
+        import json
+
+        from roleplay.core.episode import SimulationHistory
+
+        out_file = tmp_path / "out.json"
+        state = self._state_fixture()
+        history = SimulationHistory()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=history)
+            layer_fac.return_value = layer
+            result = runner.invoke(
+                app,
+                [
+                    "export",
+                    "exp-session",
+                    "--output",
+                    str(out_file),
+                    "--db",
+                    str(tmp_path / "t.db"),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert out_file.exists()
+        doc = json.loads(out_file.read_text())
+        assert doc["export_version"] == "1"
+        assert "Exported" in result.output
+
+
+class TestExportCommandRich:
+    """Cover persona/state/environments branches in _export_cmd."""
+
+    def _rich_state(self) -> object:
+        from roleplay.core.environment import Environment, EnvironmentRegistry
+        from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
+        from roleplay.core.party import make_environment, make_person
+        from roleplay.core.simulation_state import SimulationConfig, SimulationState
+
+        return SimulationState(
+            config=SimulationConfig(session_id="rich-exp", default_provider="mock"),
+            parties={
+                "alice": make_person(
+                    "alice", "Alice", description="A bold explorer.", goals=("Find treasure",)
+                )
+            },
+            environment=make_environment("room", "Room", "A torchlit chamber."),
+            history=SimulationHistory(),
+            scheduler=RoundRobinScheduler(),
+            clock=NoopClock(),
+            environments=EnvironmentRegistry(
+                [Environment(id="tunnel", name="Tunnel", description="A dark passage.")]
+            ),
+        )
+
+    def test_export_rich_state_includes_persona(self, tmp_path: Path) -> None:
+        import json as _json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._rich_state()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=SimulationHistory())
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "rich-exp", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = _json.loads(result.output)
+        alice = next(p for p in doc["parties"] if p["id"] == "alice")
+        assert alice["persona"]["description"] == "A bold explorer."
+        assert alice["persona"]["goals"] == ["Find treasure"]
+
+    def test_export_rich_state_includes_named_environments(self, tmp_path: Path) -> None:
+        import json as _json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._rich_state()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=SimulationHistory())
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "rich-exp", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = _json.loads(result.output)
+        assert "environments" in doc
+        assert doc["environments"][0]["id"] == "tunnel"
+
+    def test_export_environment_persona_included(self, tmp_path: Path) -> None:
+        import json as _json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._rich_state()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=SimulationHistory())
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "rich-exp", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = _json.loads(result.output)
+        assert doc["environment"]["persona"]["description"] == "A torchlit chamber."
+
+
+class TestRunCommandErrorPaths:
+    """Cover KeyboardInterrupt and generic exception paths in run command."""
+
+    def test_run_keyboard_interrupt_exits_3(self, tmp_path: Path) -> None:
+        p = _write_yaml(tmp_path)
+        with (
+            patch("roleplay.engine.engine.SimulationEngine") as eng_cls,
+            patch("roleplay.cli._open_layer") as layer_fac,
+        ):
+            layer = _mock_layer()
+            layer_fac.return_value = layer
+            eng = _mock_engine()
+            eng.run = AsyncMock(side_effect=KeyboardInterrupt())
+            eng_cls.return_value = eng
+            result = runner.invoke(app, ["run", str(p), "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 3
+
+    def test_run_generic_load_error_exits_1(self, tmp_path: Path) -> None:
+        """Cover the generic Exception branch in load_yaml_scenario."""
+        p = tmp_path / "bad.yaml"
+        p.write_text("session_id: x\n")  # invalid but won't raise generic exception
+        # Use a path that doesn't exist to trigger the file-not-found path
+        result = runner.invoke(
+            app, ["run", str(tmp_path / "nonexistent.yaml"), "--db", str(tmp_path / "t.db")]
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+
+class TestInspectCommandEdgePaths:
+    """Cover remaining inspect command branches."""
+
+    def _export_data(self, bad_config_json: bool = False, bad_state_json: bool = False) -> dict:
+        return {
+            "session": {"last_saved_at": "2025-01-01T00:00:00"},
+            "episodes": [],
+            "parties": [
+                {
+                    "party_id": "alice",
+                    "kind": "person",
+                    "config_json": (
+                        "NOT_JSON" if bad_config_json else '{"persona": {"name": "Alice"}}'
+                    ),
+                    "state_json": "NOT_JSON" if bad_state_json else "{}",
+                }
+            ],
+            "memories": [],
+        }
+
+    def test_not_found_via_export_json_exits_1(self, tmp_path: Path) -> None:
+        from roleplay.persistence import SessionNotFoundError
+
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.export_json = AsyncMock(side_effect=SessionNotFoundError("gone"))
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["inspect", "nope", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_inspect_bad_config_json_falls_back_to_party_id(self, tmp_path: Path) -> None:
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.export_json = AsyncMock(return_value=self._export_data(bad_config_json=True))
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["inspect", "s1", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        # Falls back to pid when config_json can't be parsed
+        assert "alice" in result.output
+
+    def test_inspect_bad_state_json_falls_back_to_raw(self, tmp_path: Path) -> None:
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.export_json = AsyncMock(return_value=self._export_data(bad_state_json=True))
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["inspect", "s1", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+
+
+class TestResumeCommandErrorPaths:
+    """Cover KeyboardInterrupt and generic exception during resume engine.run."""
+
+    def _state_fixture(self) -> object:
+        from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
+        from roleplay.core.party import make_environment, make_person
+        from roleplay.core.simulation_state import SimulationConfig, SimulationState
+
+        return SimulationState(
+            config=SimulationConfig(session_id="r-session", default_provider="mock"),
+            parties={"alice": make_person("alice", "Alice", description="T")},
+            environment=make_environment("env", "Env", ""),
+            history=SimulationHistory(),
+            scheduler=RoundRobinScheduler(),
+            clock=NoopClock(),
+        )
+
+    def test_resume_keyboard_interrupt_exits_3(self, tmp_path: Path) -> None:
+        state = self._state_fixture()
+        with (
+            patch("roleplay.cli._open_layer") as layer_fac,
+            patch("roleplay.engine.engine.SimulationEngine") as eng_cls,
+        ):
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer_fac.return_value = layer
+            eng = _mock_engine()
+            eng.run = AsyncMock(side_effect=KeyboardInterrupt())
+            eng_cls.return_value = eng
+            result = runner.invoke(app, ["resume", "r-session", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 3
+
+    def test_resume_engine_exception_exits_2(self, tmp_path: Path) -> None:
+        state = self._state_fixture()
+        with (
+            patch("roleplay.cli._open_layer") as layer_fac,
+            patch("roleplay.engine.engine.SimulationEngine") as eng_cls,
+        ):
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer_fac.return_value = layer
+            eng = _mock_engine()
+            eng.run = AsyncMock(side_effect=RuntimeError("crash"))
+            eng_cls.return_value = eng
+            result = runner.invoke(app, ["resume", "r-session", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 2
+
+
+class TestRunCommandGenericLoadError:
+    """Cover the generic Exception branch in load_yaml_scenario."""
+
+    def test_generic_exception_exits_1(self, tmp_path: Path) -> None:
+        p = _write_yaml(tmp_path)
+        with patch("roleplay.scenario_yaml.load_yaml_scenario", side_effect=OSError("disk error")):
+            result = runner.invoke(app, ["run", str(p), "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 1
+        assert "disk error" in result.output
+
+    def _state_with_initial_state(self) -> object:
+        """State where parties have initial state and empty persona."""
+        from roleplay.core.environment import Environment, EnvironmentRegistry
+        from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
+        from roleplay.core.party import make_environment, make_person
+        from roleplay.core.simulation_state import SimulationConfig, SimulationState
+
+        alice = make_person("alice", "Alice", description="")
+        alice.apply_state_update({"mood": "happy"}, episode_index=0)
+        env = make_environment("room", "Room", "")
+        env.apply_state_update({"lit": "yes"}, episode_index=0)
+        hallway = Environment(
+            id="hallway", name="Hallway", description="A passage.", state={"open": "true"}
+        )
+        return SimulationState(
+            config=SimulationConfig(session_id="state-exp", default_provider="mock"),
+            parties={"alice": alice},
+            environment=env,
+            history=SimulationHistory(),
+            scheduler=RoundRobinScheduler(),
+            clock=NoopClock(),
+            environments=EnvironmentRegistry([hallway]),
+        )
+
+    def test_export_party_with_empty_persona_and_initial_state(self, tmp_path: Path) -> None:
+        """Cover: if persona_d False branch, if snap True branch."""
+        import json as _json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._state_with_initial_state()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=SimulationHistory())
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "state-exp", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = _json.loads(result.output)
+        alice = next(p for p in doc["parties"] if p["id"] == "alice")
+        assert "persona" not in alice
+        assert alice["initial_state"]["mood"] == "happy"
+
+    def test_export_env_initial_state_and_named_env_state(self, tmp_path: Path) -> None:
+        """Cover: env_persona False branch, env_snap True branch, named.state True branch."""
+        import json as _json
+
+        from roleplay.core.episode import SimulationHistory
+
+        state = self._state_with_initial_state()
+        with patch("roleplay.cli._open_layer") as layer_fac:
+            layer = _mock_layer()
+            layer.load_session = AsyncMock(return_value=state)
+            layer.load_history = AsyncMock(return_value=SimulationHistory())
+            layer_fac.return_value = layer
+            result = runner.invoke(app, ["export", "state-exp", "--db", str(tmp_path / "t.db")])
+        assert result.exit_code == 0, result.output
+        doc = _json.loads(result.output)
+        assert "persona" not in doc["environment"]
+        assert doc["environment"]["initial_state"]["lit"] == "yes"
+        hallway = next(e for e in doc["environments"] if e["id"] == "hallway")
+        assert hallway["state"]["open"] == "true"

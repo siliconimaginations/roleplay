@@ -137,9 +137,24 @@ Other event types: `"episode_start"`, `"episode_end"`, `"simulation_complete"`, 
 | `GET` | `/sessions/{session_id}` | ✓ | Get session detail |
 | `DELETE` | `/sessions/{session_id}` | ✓ | Delete session and all associated data |
 | `POST` | `/sessions/{session_id}/fork` | ✓ | Fork session; returns new `SessionSummary` |
+| `GET` | `/sessions/{session_id}/yaml` | ✓ | Return current session state as a YAML scenario document |
+| `GET` | `/sessions/{session_id}/export` | ✓ | Export full session state as JSON (parties, history, named environments) |
+| `POST` | `/sessions/validate` | ✓ | Validate a YAML scenario without creating a session |
 
 `POST /sessions` body: raw YAML text (same format as `scenarios/example.yaml`).
 Response: `SessionSummary` with `201 Created`.
+
+`GET /sessions/{id}/yaml`: Returns `{"yaml": "<yaml text>"}`. The YAML reproduces
+the session's current state as a loadable scenario file, including party personas,
+environment, config, and named environments.
+
+`GET /sessions/{id}/export`: Returns a JSON object with `session_id`, `parties`
+(with `persona`, `initial_state`), `environment`, `environments` (named), and
+`episodes` (with turn history and AI summaries).
+
+`POST /sessions/validate` body: raw YAML. Returns
+`{"valid": true}` or `{"valid": false, "errors": ["..."]}`. Does not persist
+anything.
 
 ---
 
@@ -150,7 +165,7 @@ Response: `SessionSummary` with `201 Created`.
 | `POST` | `/sessions/{session_id}/run` | ✓ | Start or continue running; optional `?episodes=N` |
 | `GET` | `/sessions/{session_id}/status` | ✓ | Current run status |
 | `POST` | `/sessions/{session_id}/pause` | ✓ | Request pause after current turn |
-| `POST` | `/sessions/{session_id}/inject` | ✓ | Inject a narrative event (body: `{"text": "..."}`) |
+| `POST` | `/sessions/{session_id}/inject` | ✓ | Inject a narrative event (body: `{"text": "..."}`) — accepted in `running`, `paused`, `idle`, and `done` states |
 
 `POST /sessions/{id}/run`:
 - If session is already running: `409 Conflict`.

@@ -173,6 +173,20 @@ uv run roleplay validate my_scenario.yaml
 #   • parties[0].persona.description: required field missing
 ```
 
+### `roleplay export <session_id>`
+
+Export a session's current state as JSON, including all parties with their personas, episode history, and injection markers. Useful for archiving, post-processing, or importing into other tools.
+
+```bash
+# Print JSON to stdout
+uv run roleplay export my-session
+
+# Save to a file
+uv run roleplay export my-session -o session-export.json
+```
+
+The JSON includes `session_id`, `parties` (with `persona` and `initial_state`), `environment`, `environments` (named environments), and `episodes` (with turn history and summaries).
+
 ### `roleplay generate <prompt>`
 
 Generate a complete YAML scenario from a natural-language prompt using an AI provider. The output is valid YAML ready to pass to `roleplay run` or `roleplay validate`.
@@ -414,6 +428,8 @@ Omit the env var entirely for unauthenticated dev mode.
 | `GET` | `/sessions/{id}` | Get session detail |
 | `DELETE` | `/sessions/{id}` | Delete a session |
 | `POST` | `/sessions/{id}/fork` | Fork session at current state |
+| `GET` | `/sessions/{id}/yaml` | Return current session state as a YAML scenario document |
+| `GET` | `/sessions/{id}/export` | Export full session state as JSON (parties, history, environments) |
 | `POST` | `/sessions/validate` | Validate YAML without creating a session |
 | `POST` | `/sessions/generate` | Generate a YAML scenario from a natural-language prompt |
 | `POST` | `/sessions/{id}/run?episodes=N` | Run N episodes (background) |

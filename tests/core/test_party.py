@@ -394,3 +394,55 @@ class TestValidateEnvironmentState:
             warnings.simplefilter("always")
             make_environment("w", "W", "desc", initial_state={"bad_key": "val"})
         assert any("bad_key" in str(w.message) for w in caught)
+
+
+class TestPersonaToExportDict:
+    def test_empty_persona_returns_only_description(self) -> None:
+        p = Persona(description="A merchant.")
+        d = p.to_export_dict()
+        assert d == {"description": "A merchant."}
+
+    def test_empty_description_omitted(self) -> None:
+        p = Persona(description="")
+        d = p.to_export_dict()
+        assert "description" not in d
+
+    def test_goals_included_as_list(self) -> None:
+        p = Persona(description="Hero", goals=("Save the world", "Find treasure"))
+        d = p.to_export_dict()
+        assert d["goals"] == ["Save the world", "Find treasure"]
+
+    def test_traits_included_as_list(self) -> None:
+        p = Persona(description="Hero", traits=("brave", "loyal"))
+        d = p.to_export_dict()
+        assert d["traits"] == ["brave", "loyal"]
+
+    def test_knowledge_included_as_list(self) -> None:
+        p = Persona(description="Spy", knowledge=("The safe is behind the painting",))
+        d = p.to_export_dict()
+        assert d["knowledge"] == ["The safe is behind the painting"]
+
+    def test_constraints_included_as_list(self) -> None:
+        p = Persona(description="Guard", constraints=("Never leaves post",))
+        d = p.to_export_dict()
+        assert d["constraints"] == ["Never leaves post"]
+
+    def test_empty_tuples_omitted(self) -> None:
+        p = Persona(description="Minimalist", goals=(), traits=(), knowledge=(), constraints=())
+        d = p.to_export_dict()
+        assert set(d.keys()) == {"description"}
+
+    def test_full_persona_all_fields(self) -> None:
+        p = Persona(
+            description="A veteran detective.",
+            goals=("Solve the case",),
+            traits=("observant", "stubborn"),
+            knowledge=("The butler was in London",),
+            constraints=("Cannot arrest without evidence",),
+        )
+        d = p.to_export_dict()
+        assert d["description"] == "A veteran detective."
+        assert d["goals"] == ["Solve the case"]
+        assert d["traits"] == ["observant", "stubborn"]
+        assert d["knowledge"] == ["The butler was in London"]
+        assert d["constraints"] == ["Cannot arrest without evidence"]

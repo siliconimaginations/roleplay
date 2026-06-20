@@ -318,3 +318,298 @@ class TestExportSession:
         assert "context_window_episodes" in cfg
         assert "memory_max_entries" in cfg
         assert "environment_reactive" in cfg
+
+
+class TestGetSessionYaml:
+    @pytest.mark.asyncio
+    async def test_yaml_returns_200(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        r = await client.get("/sessions/test-session-001/yaml")
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_yaml_returns_yaml_key(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/yaml")).json()
+        assert "yaml" in body
+        assert isinstance(body["yaml"], str)
+
+    @pytest.mark.asyncio
+    async def test_yaml_contains_session_id(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/yaml")).json()
+        assert "test-session-001" in body["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_yaml_contains_parties(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/yaml")).json()
+        assert "alice" in body["yaml"]
+        assert "bob" in body["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_yaml_nonexistent_session_returns_404(self, client: AsyncClient) -> None:
+        r = await client.get("/sessions/does-not-exist/yaml")
+        assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Rich YAML fixture — parties have persona descriptions, named environments
+# ---------------------------------------------------------------------------
+
+_RICH_YAML = """\
+session_id: "rich-session-001"
+config:
+  default_provider: mock
+parties:
+  - id: alice
+    kind: person
+    name: Alice
+    persona:
+      description: "A seasoned negotiator."
+      goals:
+        - "Reach a fair deal"
+      traits:
+        - "patient"
+  - id: room
+    kind: environment
+    name: Conference Room
+    persona:
+      description: "A formal meeting space."
+environments:
+  - id: hallway
+    name: Hallway
+    description: "A long corridor outside the room."
+"""
+
+
+class TestGetSessionYamlRich:
+    """Cover persona/environment branches in the YAML endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_yaml_includes_party_persona(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        assert "A seasoned negotiator" in body["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_yaml_includes_environment_persona(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        assert "A formal meeting space" in body["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_yaml_includes_named_environments(self, client: AsyncClient) -> None:
+        # Named environments are now persisted via migration 003. Closes #90.
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        assert "hallway" in body["yaml"]
+        assert "A long corridor" in body["yaml"]
+
+
+class TestExportSessionRich:
+    """Cover persona/environment branches in the export endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_export_includes_party_persona(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/export")).json()
+        alice = next(p for p in body["parties"] if p["id"] == "alice")
+        assert alice["persona"]["description"] == "A seasoned negotiator."
+        assert alice["persona"]["goals"] == ["Reach a fair deal"]
+
+    @pytest.mark.asyncio
+    async def test_export_includes_environment_persona(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/export")).json()
+        assert body["environment"]["persona"]["description"] == "A formal meeting space."
+
+    @pytest.mark.asyncio
+    async def test_export_includes_named_environments(self, client: AsyncClient) -> None:
+        # Named environments are now persisted via migration 003. Closes #90.
+        await client.post("/sessions", content=_RICH_YAML)
+        body = (await client.get("/sessions/rich-session-001/export")).json()
+        assert "environments" in body
+        env_ids = [e["id"] for e in body["environments"]]
+        assert "hallway" in env_ids
+
+
+class TestSessionYamlAndExportEnvironmentsBranch:
+    """Cover the named-environments loop in YAML/export endpoints directly.
+
+    Named environments aren't persisted by SqlitePersistenceLayer, so we
+    can't reach this branch through the full API stack.  Instead we call the
+    route functions directly with a fabricated SimulationState.
+    """
+
+    def _rich_state(self) -> object:
+        from roleplay.core.environment import Environment, EnvironmentRegistry
+        from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
+        from roleplay.core.party import make_environment, make_person
+        from roleplay.core.simulation_state import SimulationConfig, SimulationState
+
+        return SimulationState(
+            config=SimulationConfig(session_id="direct-session", default_provider="mock"),
+            parties={"alice": make_person("alice", "Alice", description="A negotiator.")},
+            environment=make_environment("room", "Room", "A meeting room."),
+            history=SimulationHistory(),
+            scheduler=RoundRobinScheduler(),
+            clock=NoopClock(),
+            environments=EnvironmentRegistry(
+                [Environment(id="hallway", name="Hallway", description="A corridor.")]
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_yaml_environments_branch(self, app_client: object) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        app, client = app_client  # type: ignore[misc]
+        state = self._rich_state()
+
+        fake_layer = MagicMock()
+        fake_layer.load_session = AsyncMock(return_value=state)
+        app.state.layer = fake_layer
+
+        # Use the real HTTP client so auth/request wiring is correct
+        r = await client.get("/sessions/direct-session/yaml")
+        assert r.status_code == 200
+        assert "hallway" in r.json()["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_export_environments_branch(self, app_client: object) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from roleplay.core.episode import SimulationHistory
+
+        app, client = app_client  # type: ignore[misc]
+        state = self._rich_state()
+        history = SimulationHistory()
+
+        fake_layer = MagicMock()
+        fake_layer.load_session = AsyncMock(return_value=state)
+        fake_layer.load_history = AsyncMock(return_value=history)
+        app.state.layer = fake_layer
+
+        r = await client.get("/sessions/direct-session/export")
+        assert r.status_code == 200
+        body = r.json()
+        assert "environments" in body
+        assert body["environments"][0]["id"] == "hallway"
+
+
+_STATE_YAML = """\
+session_id: "state-session-001"
+config:
+  default_provider: mock
+parties:
+  - id: alice
+    kind: person
+    name: Alice
+    persona:
+      description: "An explorer."
+    state:
+      mood: happy
+      energy: 10
+  - id: room
+    kind: environment
+    name: Room
+    persona:
+      description: "A dusty chamber."
+    state:
+      lit: true
+"""
+
+
+class TestYamlAndExportInitialStateBranch:
+    """Cover the initial_state branches (p.state_snapshot() / env.state_snapshot())."""
+
+    @pytest.mark.asyncio
+    async def test_yaml_party_initial_state_included(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_STATE_YAML)
+        body = (await client.get("/sessions/state-session-001/yaml")).json()
+        # Party with state → initial_state key appears in YAML
+        assert "mood" in body["yaml"] or "energy" in body["yaml"]
+
+    @pytest.mark.asyncio
+    async def test_export_party_initial_state_included(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_STATE_YAML)
+        body = (await client.get("/sessions/state-session-001/export")).json()
+        alice = next(p for p in body["parties"] if p["id"] == "alice")
+        assert "initial_state" in alice
+
+    @pytest.mark.asyncio
+    async def test_export_environment_initial_state_included(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_STATE_YAML)
+        body = (await client.get("/sessions/state-session-001/export")).json()
+        assert "initial_state" in body["environment"]
+
+
+class TestValidateSessionGenericException:
+    """Cover the generic Exception branch in validate_session (lines 306-307)."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_yaml_syntax_returns_422(self, client: AsyncClient) -> None:
+        # Malformed YAML (not a ValidationError, triggers generic Exception branch)
+        r = await client.post("/sessions/validate", content=b"key: {unclosed")
+        assert r.status_code == 422
+        body = r.json()
+        assert body["valid"] is False
+        assert any("Invalid YAML" in e for e in body["errors"])
+
+
+class TestGetSessionHistory:
+    """Cover the history endpoint loop (lines 327-353)."""
+
+    @pytest.mark.asyncio
+    async def test_history_with_completed_episodes(self, app_client: object) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from roleplay.core.episode import Episode, SimulationHistory, Turn
+
+        app, client = app_client  # type: ignore[misc]
+
+        # Build a completed episode with turns
+        ep = Episode(index=0, turns=[], simulated_time_start="t0")
+        ep.turns.append(
+            Turn(
+                party_id="alice",
+                index=0,
+                output="Hello!",
+                state_update_proposals={"mood": "happy"},
+            )
+        )
+        ep.close("t1")
+        ep.summary = "First episode summary."
+
+        history = SimulationHistory()
+        history.episodes.append(ep)
+
+        fake_layer = MagicMock()
+        fake_layer.load_history = AsyncMock(return_value=history)
+        app.state.layer = fake_layer
+
+        r = await client.get("/sessions/any-session/history")
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body) == 1
+        assert body[0]["episode"] == 0
+        assert body[0]["done"] is True
+        assert body[0]["summary"] == "First episode summary."
+        assert body[0]["turns"][0]["party_id"] == "alice"
+        assert body[0]["turns"][0]["output"] == "Hello!"
+        assert body[0]["turns"][0]["state_update_proposals"] == {"mood": "happy"}
+
+    @pytest.mark.asyncio
+    async def test_history_not_found_returns_404(self, app_client: object) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from roleplay.persistence import SessionNotFoundError
+
+        app, client = app_client  # type: ignore[misc]
+        fake_layer = MagicMock()
+        fake_layer.load_history = AsyncMock(side_effect=SessionNotFoundError("gone"))
+        app.state.layer = fake_layer
+
+        r = await client.get("/sessions/missing/history")
+        assert r.status_code == 404

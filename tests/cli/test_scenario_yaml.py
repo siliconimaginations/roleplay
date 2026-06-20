@@ -295,3 +295,45 @@ def test_bad_tool_handler_raises(tmp_path: Path) -> None:
     yaml = _MINIMAL + "tools:\n  - name: broken\n    handler: roleplay.nonexistent.module.fn\n"
     with pytest.raises(ImportError):
         load_yaml_scenario(_write(tmp_path, yaml))
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+def test_environments_missing_id_raises(tmp_path: Path) -> None:
+    """Line 116: environments entry with no 'id' → ValidationError."""
+    yaml = _MINIMAL + "environments:\n  - name: Hall\n    description: A corridor.\n"
+    with pytest.raises(ValidationError) as exc_info:
+        load_yaml_scenario(_write(tmp_path, yaml))
+    assert "requires an 'id' field" in str(exc_info.value)
+
+
+def test_organization_party_with_initial_state(tmp_path: Path) -> None:
+    """Line 278: organization + state → apply_state_update called."""
+    yaml = (
+        _MINIMAL
+        + "  - id: guild\n    kind: organization\n    name: The Guild\n"
+        + "    persona:\n      description: A merchant guild\n"
+        + "    state:\n      mood: cheerful\n"
+    )
+    result = load_yaml_scenario(_write(tmp_path, yaml))
+    party = result.state.parties["guild"]
+    assert party.kind is PartyKind.ORGANIZATION
+    assert any(c.key == "mood" for c in party.state_history)
+
+
+def test_non_callable_handler_raises(tmp_path: Path) -> None:
+    """Lines 186-189: attribute exists but is not callable → ImportError."""
+    # os.sep is a string attribute — importable but not callable
+    yaml = _MINIMAL + "tools:\n  - name: bad\n    handler: os.sep\n"
+    with pytest.raises(ImportError, match="is not callable"):
+        load_yaml_scenario(_write(tmp_path, yaml))
+
+
+def test_tool_with_no_handler_path_skipped(tmp_path: Path) -> None:
+    """Line 327: tools entry with empty handler is silently skipped (continue)."""
+    yaml = _MINIMAL + "tools:\n  - name: no-handler\n"
+    result = load_yaml_scenario(_write(tmp_path, yaml))
+    assert result is not None
