@@ -287,10 +287,7 @@ interactive mode.
 Validate a scenario file without creating a session. Exits 0 on success, 1 on any error.
 
 ```
-Usage: roleplay validate [OPTIONS] FILES...
-
-Options:
-  --quiet / -q   Suppress warnings; only print errors.
+Usage: roleplay validate [OPTIONS] SCENARIO
 ```
 
 ```bash
@@ -303,7 +300,7 @@ uv run roleplay validate bad.yaml
 #   parties[0].persona.description: required field missing
 ```
 
-Accepts multiple files; prints a result block for each. The exit code is 1 if any file is invalid.
+Takes a single file argument. The exit code is 1 if the file is invalid.
 
 ### `roleplay export <session_id>`
 
