@@ -296,15 +296,17 @@ Roleplay ships a React + Vite single-page application served by the FastAPI back
 
 ```bash
 # Terminal 1 — backend
-export GEMINI_API_KEY=your_gemini_key   # required for Gemini provider
-export ROLEPLAY_API_KEY=dev              # any string; use the same value in the UI
+# GEMINI_API_KEY authenticates with the Gemini LLM API (get one at ai.google.dev)
+# ROLEPLAY_API_KEY is your own secret that protects the Roleplay server endpoints
+export GEMINI_API_KEY=<your-gemini-api-key>
+export ROLEPLAY_API_KEY=dev              # any string you choose
 uv run uvicorn roleplay.api.app:app --reload
 
 # Terminal 2 — frontend dev server (proxies /sessions and /health to :8000)
 cd frontend
 npm install
 npm run dev          # Opens http://localhost:5173
-# Enter the same ROLEPLAY_API_KEY value ("dev") when the UI asks for an API key
+# Enter the same ROLEPLAY_API_KEY value ("dev") when the UI prompts for an API key
 ```
 
 ### Production build
@@ -321,7 +323,7 @@ uv run uvicorn roleplay.api.app:app --host 0.0.0.0 --port 8000
 docker build -t roleplay .
 docker run -p 8000:8000 \
   -e ROLEPLAY_API_KEY=secret \
-  -e GEMINI_API_KEY=your_gemini_key \
+  -e GEMINI_API_KEY=<your-gemini-api-key> \
   roleplay
 # Visit http://localhost:8000
 # Enter "secret" when the UI prompts for an API key
