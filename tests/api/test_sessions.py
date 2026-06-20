@@ -193,3 +193,62 @@ class TestCreateSessionDbFailure:
             r = await client.post("/sessions", content=MINIMAL_YAML)
         assert r.status_code == 500
         assert "disk full" in r.json()["detail"]
+
+
+class TestValidateSession:
+    """Tests for POST /sessions/validate."""
+
+    @pytest.mark.asyncio
+    async def test_valid_yaml_returns_valid_true(self, client: AsyncClient) -> None:
+        r = await client.post("/sessions/validate", content=MINIMAL_YAML)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is True
+        assert body["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_missing_environment_returns_errors(self, client: AsyncClient) -> None:
+        """Scenario with no environment party → validation error."""
+        yaml_no_env = b"""\
+session_id: no-env
+config:
+  default_provider: mock
+parties:
+  - id: alice
+    kind: person
+    name: Alice
+    persona:
+      description: A person.
+"""
+        r = await client.post("/sessions/validate", content=yaml_no_env)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is False
+        assert len(body["errors"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_empty_body_returns_error(self, client: AsyncClient) -> None:
+        r = await client.post("/sessions/validate", content=b"   ")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is False
+
+    @pytest.mark.asyncio
+    async def test_invalid_utf8_returns_error(self, client: AsyncClient) -> None:
+        r = await client.post(
+            "/sessions/validate",
+            content=b"\xff\xfe bad bytes",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is False
+        assert any("UTF-8" in e for e in body["errors"])
+
+    @pytest.mark.asyncio
+    async def test_validate_does_not_create_session(self, client: AsyncClient) -> None:
+        """Validate must not persist anything — sessions list stays empty."""
+        await client.post("/sessions/validate", content=MINIMAL_YAML)
+        r = await client.get("/sessions")
+        assert r.status_code == 200
+        assert r.json() == []

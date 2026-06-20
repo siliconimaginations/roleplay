@@ -55,6 +55,18 @@ export const createSession = (yaml: string): Promise<SessionSummary> =>
     body: yaml,
   });
 
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export const validateSession = (yaml: string): Promise<ValidationResult> =>
+  apiFetch<ValidationResult>("/sessions/validate", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: yaml,
+  });
+
 export const deleteSession = (id: string): Promise<void> =>
   apiFetch(`/sessions/${id}`, { method: "DELETE" });
 

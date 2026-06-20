@@ -159,6 +159,20 @@ Delete a specific memory entry from a party.
 uv run roleplay forget my-first-run alice mem_abc123
 ```
 
+### `roleplay validate <scenario.yaml>`
+
+Validate a scenario file without creating a session. Exits 0 on success, 1 with error list on failure.
+
+```bash
+uv run roleplay validate my_scenario.yaml
+# ✓ my_scenario.yaml is valid.
+
+# Returns a non-zero exit code and prints errors on invalid input:
+# ✗ my_scenario.yaml has 2 error(s):
+#   • parties: must include exactly one kind=environment party
+#   • parties[0].persona.description: required field missing
+```
+
 ### `roleplay delete <session_id>`
 
 Permanently delete a session and all its data.
@@ -343,6 +357,7 @@ docker compose up
 | **Sessions list** | See all sessions, their status and episode count; refresh auto-polls every 5 s |
 | **Create session** | Paste or edit a YAML scenario and submit — session is created immediately |
 | **Live stream** | Watch turns stream in real time via WebSocket; colour-coded per party |
+| **Validate** | Check a YAML scenario for errors before creating a session — shows a list of actionable errors in amber or a green "valid" confirmation |
 | **Summary / Detail toggle** | Switch between a compact one-line-per-episode summary view and the full turn-by-turn dialog (with AI-generated summary shown below each episode) |
 | **Run / Pause** | Start N episodes or pause mid-run from the browser |
 | **Inject event** | Push a narrative event into the running simulation |
@@ -381,6 +396,7 @@ Omit the env var entirely for unauthenticated dev mode.
 | `GET` | `/sessions/{id}` | Get session detail |
 | `DELETE` | `/sessions/{id}` | Delete a session |
 | `POST` | `/sessions/{id}/fork` | Fork session at current state |
+| `POST` | `/sessions/validate` | Validate YAML without creating a session |
 | `POST` | `/sessions/{id}/run?episodes=N` | Run N episodes (background) |
 | `GET` | `/sessions/{id}/status` | Get run status |
 | `POST` | `/sessions/{id}/pause` | Request pause after current turn |

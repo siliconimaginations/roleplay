@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, validateSession } from "../api/client";
 
 const EXAMPLE_YAML = `session_id: my-first-session
 config:
@@ -41,6 +41,13 @@ parties:
       env.tension_level: low
       env.time_of_day: evening
 `;
+
+type ValidationState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "ok" }
+  | { status: "errors"; errors: string[] };
+
 interface Props {
   onClose: () => void;
   onCreate: (yaml: string) => Promise<void>;
@@ -50,6 +57,28 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
   const [yaml, setYaml] = useState(EXAMPLE_YAML);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<ValidationState>({ status: "idle" });
+
+  // Reset validation result whenever YAML changes.
+  function handleYamlChange(value: string) {
+    setYaml(value);
+    if (validation.status !== "idle") setValidation({ status: "idle" });
+  }
+
+  async function handleValidate() {
+    setValidation({ status: "checking" });
+    setError(null);
+    try {
+      const result = await validateSession(yaml);
+      if (result.valid) {
+        setValidation({ status: "ok" });
+      } else {
+        setValidation({ status: "errors", errors: result.errors });
+      }
+    } catch (e) {
+      setValidation({ status: "errors", errors: [String(e)] });
+    }
+  }
 
   async function handleSubmit() {
     setLoading(true);
@@ -90,15 +119,37 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
             <span className="text-blue-400">Run</span> in the session view.
           </p>
 
+          {/* Create error */}
           {error && (
             <div className="mb-3 px-3 py-2 rounded bg-red-900/40 border border-red-700 text-red-300 text-sm whitespace-pre-wrap">
               {error}
             </div>
           )}
 
+          {/* Validation result */}
+          {validation.status === "ok" && (
+            <div className="mb-3 px-3 py-2 rounded bg-green-900/40 border border-green-700 text-green-300 text-sm flex items-center gap-2">
+              <span>✓</span>
+              <span>Scenario is valid.</span>
+            </div>
+          )}
+          {validation.status === "errors" && (
+            <div className="mb-3 px-3 py-2 rounded bg-amber-900/40 border border-amber-700 text-amber-300 text-sm">
+              <div className="font-semibold mb-1">
+                ✗ {validation.errors.length} validation error
+                {validation.errors.length !== 1 ? "s" : ""}:
+              </div>
+              <ul className="list-disc list-inside space-y-0.5">
+                {validation.errors.map((e, i) => (
+                  <li key={i} className="text-xs">{e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <textarea
             value={yaml}
-            onChange={(e) => setYaml(e.target.value)}
+            onChange={(e) => handleYamlChange(e.target.value)}
             rows={24}
             spellCheck={false}
             className="w-full bg-gray-950 border border-gray-700 rounded font-mono text-xs text-green-300 p-3 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
@@ -111,6 +162,13 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
             className="px-4 py-2 text-sm rounded border border-gray-700 hover:bg-gray-800"
           >
             Cancel
+          </button>
+          <button
+            disabled={loading || !yaml.trim() || validation.status === "checking"}
+            onClick={() => void handleValidate()}
+            className="px-4 py-2 text-sm rounded border border-gray-600 hover:bg-gray-800 font-medium disabled:opacity-40"
+          >
+            {validation.status === "checking" ? "Checking…" : "Validate"}
           </button>
           <button
             disabled={loading || !yaml.trim()}

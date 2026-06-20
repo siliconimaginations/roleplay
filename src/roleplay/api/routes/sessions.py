@@ -255,6 +255,51 @@ async def fork_session(
 
 
 # ---------------------------------------------------------------------------
+# POST /sessions/validate — validate YAML without creating a session
+# ---------------------------------------------------------------------------
+
+
+@router.post("/validate")
+async def validate_session(
+    request: Request,
+    _auth: Auth,
+) -> dict[str, object]:
+    """Validate a YAML scenario body without persisting anything.
+
+    Returns ``{"valid": true}`` on success or
+    ``{"valid": false, "errors": [...]}`` with a list of human-readable
+    error strings on failure.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
+
+    body = await request.body()
+    try:
+        yaml_text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"valid": False, "errors": ["Request body must be valid UTF-8 YAML text"]}
+
+    if not yaml_text.strip():
+        return {"valid": False, "errors": ["Scenario is empty"]}
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as tmp:
+        tmp.write(yaml_text)
+        tmp_path = Path(tmp.name)
+
+    try:
+        load_yaml_scenario(tmp_path)
+        return {"valid": True, "errors": []}
+    except ValidationError as exc:
+        return {"valid": False, "errors": exc.errors}
+    except Exception as exc:
+        return {"valid": False, "errors": [f"Invalid YAML: {exc}"]}
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # GET /sessions/{session_id}/history
 # ---------------------------------------------------------------------------
 
