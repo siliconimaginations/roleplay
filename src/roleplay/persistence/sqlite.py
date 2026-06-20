@@ -211,6 +211,7 @@ class SqlitePersistenceLayer:
             named = state.environments.get(env_id)
             if named is not None:
                 import json as _json
+
                 await db.execute(
                     """
                     INSERT OR IGNORE INTO named_environments
@@ -345,6 +346,7 @@ class SqlitePersistenceLayer:
 
         # Restore named environments (EnvironmentRegistry), closes #90
         import json as _json
+
         from roleplay.core.environment import Environment, EnvironmentRegistry
 
         env_rows = await (
@@ -870,8 +872,7 @@ class SqlitePersistenceLayer:
                     "INSERT INTO named_environments "
                     "(env_id, session_id, name, description, state_json) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (ne["env_id"], new_session_id, ne["name"],
-                     ne["description"], ne["state_json"]),
+                    (ne["env_id"], new_session_id, ne["name"], ne["description"], ne["state_json"]),
                 )
 
             await db.commit()

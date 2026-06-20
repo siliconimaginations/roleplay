@@ -463,7 +463,6 @@ class TestSessionYamlAndExportEnvironmentsBranch:
     @pytest.mark.asyncio
     async def test_yaml_environments_branch(self, app_client: object) -> None:
         from unittest.mock import AsyncMock, MagicMock
-        from roleplay.api.routes.sessions import get_session_yaml
 
         app, client = app_client  # type: ignore[misc]
         state = self._rich_state()
@@ -480,6 +479,7 @@ class TestSessionYamlAndExportEnvironmentsBranch:
     @pytest.mark.asyncio
     async def test_export_environments_branch(self, app_client: object) -> None:
         from unittest.mock import AsyncMock, MagicMock
+
         from roleplay.core.episode import SimulationHistory
 
         app, client = app_client  # type: ignore[misc]
@@ -564,6 +564,7 @@ class TestGetSessionHistory:
     @pytest.mark.asyncio
     async def test_history_with_completed_episodes(self, app_client: object) -> None:
         from unittest.mock import AsyncMock, MagicMock
+
         from roleplay.core.episode import Episode, SimulationHistory, Turn
 
         app, client = app_client  # type: ignore[misc]
@@ -571,7 +572,12 @@ class TestGetSessionHistory:
         # Build a completed episode with turns
         ep = Episode(index=0, turns=[], simulated_time_start="t0")
         ep.turns.append(
-            Turn(party_id="alice", index=0, output="Hello!", state_update_proposals={"mood": "happy"})
+            Turn(
+                party_id="alice",
+                index=0,
+                output="Hello!",
+                state_update_proposals={"mood": "happy"},
+            )
         )
         ep.close("t1")
         ep.summary = "First episode summary."
@@ -597,6 +603,7 @@ class TestGetSessionHistory:
     @pytest.mark.asyncio
     async def test_history_not_found_returns_404(self, app_client: object) -> None:
         from unittest.mock import AsyncMock, MagicMock
+
         from roleplay.persistence import SessionNotFoundError
 
         app, client = app_client  # type: ignore[misc]

@@ -642,7 +642,14 @@ class TestExportCommand:
             layer_fac.return_value = layer
             result = runner.invoke(
                 app,
-                ["export", "exp-session", "--output", str(out_file), "--db", str(tmp_path / "t.db")],
+                [
+                    "export",
+                    "exp-session",
+                    "--output",
+                    str(out_file),
+                    "--db",
+                    str(tmp_path / "t.db"),
+                ],
             )
         assert result.exit_code == 0, result.output
         assert out_file.exists()
@@ -663,8 +670,9 @@ class TestExportCommandRich:
         return SimulationState(
             config=SimulationConfig(session_id="rich-exp", default_provider="mock"),
             parties={
-                "alice": make_person("alice", "Alice", description="A bold explorer.",
-                                    goals=("Find treasure",))
+                "alice": make_person(
+                    "alice", "Alice", description="A bold explorer.", goals=("Find treasure",)
+                )
             },
             environment=make_environment("room", "Room", "A torchlit chamber."),
             history=SimulationHistory(),
@@ -677,6 +685,7 @@ class TestExportCommandRich:
 
     def test_export_rich_state_includes_persona(self, tmp_path: Path) -> None:
         import json as _json
+
         from roleplay.core.episode import SimulationHistory
 
         state = self._rich_state()
@@ -694,6 +703,7 @@ class TestExportCommandRich:
 
     def test_export_rich_state_includes_named_environments(self, tmp_path: Path) -> None:
         import json as _json
+
         from roleplay.core.episode import SimulationHistory
 
         state = self._rich_state()
@@ -710,6 +720,7 @@ class TestExportCommandRich:
 
     def test_export_environment_persona_included(self, tmp_path: Path) -> None:
         import json as _json
+
         from roleplay.core.episode import SimulationHistory
 
         state = self._rich_state()
@@ -764,7 +775,9 @@ class TestInspectCommandEdgePaths:
                 {
                     "party_id": "alice",
                     "kind": "person",
-                    "config_json": "NOT_JSON" if bad_config_json else '{"persona": {"name": "Alice"}}',
+                    "config_json": (
+                        "NOT_JSON" if bad_config_json else '{"persona": {"name": "Alice"}}'
+                    ),
                     "state_json": "NOT_JSON" if bad_state_json else "{}",
                 }
             ],
@@ -870,8 +883,9 @@ class TestRunCommandGenericLoadError:
         alice.apply_state_update({"mood": "happy"}, episode_index=0)
         env = make_environment("room", "Room", "")
         env.apply_state_update({"lit": "yes"}, episode_index=0)
-        hallway = Environment(id="hallway", name="Hallway", description="A passage.",
-                              state={"open": "true"})
+        hallway = Environment(
+            id="hallway", name="Hallway", description="A passage.", state={"open": "true"}
+        )
         return SimulationState(
             config=SimulationConfig(session_id="state-exp", default_provider="mock"),
             parties={"alice": alice},
@@ -885,6 +899,7 @@ class TestRunCommandGenericLoadError:
     def test_export_party_with_empty_persona_and_initial_state(self, tmp_path: Path) -> None:
         """Cover: if persona_d False branch, if snap True branch."""
         import json as _json
+
         from roleplay.core.episode import SimulationHistory
 
         state = self._state_with_initial_state()
@@ -903,6 +918,7 @@ class TestRunCommandGenericLoadError:
     def test_export_env_initial_state_and_named_env_state(self, tmp_path: Path) -> None:
         """Cover: env_persona False branch, env_snap True branch, named.state True branch."""
         import json as _json
+
         from roleplay.core.episode import SimulationHistory
 
         state = self._state_with_initial_state()

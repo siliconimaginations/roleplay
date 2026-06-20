@@ -790,7 +790,10 @@ class TestValidateCoverageGaps:
     def test_environment_scalar_not_dict(self, tmp_path: Path) -> None:
         """Line 181: environment value is a scalar, not a table."""
         f = tmp_path / "s.toml"
-        f.write_text('environment = "not a table"\n\n[[parties]]\nid = "alice"\nname = "Alice"\nkind = "person"\n')
+        f.write_text(
+            'environment = "not a table"\n\n'
+            '[[parties]]\nid = "alice"\nname = "Alice"\nkind = "person"\n'
+        )
         result = validate_scenario(f)
         assert not result.valid
         assert any("must be a TOML table" in str(e) for e in result.errors)
@@ -798,6 +801,7 @@ class TestValidateCoverageGaps:
     def test_check_party_with_non_dict_directly(self) -> None:
         """Lines 251-257: _check_party called with a non-dict value."""
         from roleplay.validate import ValidationResult, _check_party
+
         result = ValidationResult(path=None)  # type: ignore[arg-type]
         seen: set[str] = set()
         _check_party("not-a-dict", 0, seen, result)
@@ -817,7 +821,9 @@ class TestValidateCoverageGaps:
     def test_main_prints_warnings_and_exits(self, tmp_path: Path) -> None:
         """Lines 472-473, 480: main() prints warnings and calls sys.exit."""
         import sys
+        from contextlib import redirect_stdout
         from io import StringIO
+
         from roleplay.validate import main
 
         # Write a valid YAML file with a warning-triggering unknown state key
@@ -833,9 +839,8 @@ class TestValidateCoverageGaps:
         captured = StringIO()
         sys.argv = ["validate", str(f)]
         try:
-            with pytest.raises(SystemExit) as exc_info:
-                with __import__("contextlib").redirect_stdout(captured):
-                    main()
+            with pytest.raises(SystemExit) as exc_info, redirect_stdout(captured):
+                main()
         finally:
             sys.argv = old_argv
         assert exc_info.value.code == 0
