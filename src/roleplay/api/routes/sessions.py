@@ -472,13 +472,12 @@ async def get_session_yaml(
             pd["initial_state"] = dict(p.state_snapshot())
         parties_list.append(pd)
 
-    # Environment party
+    # Environment party — use the same _persona_dict helper for consistency
     env = state.environment
-    env_dict: dict[str, object] = {
-        "id": env.id,
-        "name": env.name,
-        "description": getattr(env.persona, "description", ""),
-    }
+    env_dict: dict[str, object] = {"id": env.id, "name": env.name}
+    env_persona = _persona_dict(env.persona)
+    if env_persona:
+        env_dict["persona"] = env_persona
     if env.state_snapshot():
         env_dict["initial_state"] = dict(env.state_snapshot())
 
