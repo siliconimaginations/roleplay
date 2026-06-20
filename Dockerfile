@@ -42,7 +42,7 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 
 # Copy the compiled frontend assets
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Persistent data directory for SQLite
 RUN mkdir -p /data && chown roleplay:roleplay /data
