@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from roleplay.engine.observer import ObserverDirective
 
 if TYPE_CHECKING:
-    from roleplay.core.episode import Turn
+    from roleplay.core.episode import Episode, Turn
     from roleplay.core.simulation_state import SimulationState
     from roleplay.persistence.sqlite import SqlitePersistenceLayer
+    from roleplay.providers.base import Provider
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,9 @@ _QUEUE_MAXSIZE = 512
 class ApiObserverHook:
     """Bridges engine lifecycle callbacks into the runner's event queue."""
 
-    def __init__(self, runner: SessionRunner) -> None:
+    def __init__(self, runner: SessionRunner, provider: Provider) -> None:
         self._runner = runner
+        self._provider = provider
 
     async def before_episode(
         self,
@@ -89,8 +91,41 @@ class ApiObserverHook:
         state: SimulationState,
         episode: object,
     ) -> ObserverDirective:
+        ep: Episode = episode  # type: ignore[assignment]
         ep_index = len(state.history.completed_episodes()) - 1
-        await self._runner._broadcast({"type": "episode_end", "episode": max(ep_index, 0)})
+
+        # Generate a 1-2 sentence summary via LLM; fall back to empty string on error.
+        summary = ""
+        if ep.turns:
+            dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+            try:
+                from roleplay.providers.base import CompletionRequest
+
+                resp = await self._provider.complete(
+                    CompletionRequest(
+                        prompt=(
+                            "You are summarizing a roleplay scene. "
+                            "Write 1-2 sentences describing what happened, any decisions reached, "
+                            "and key dynamics. Be specific and concise. "
+                            "Output only the summary - no bullet points, no headers,"
+                            " no preamble.\n\n"
+                            "Dialog:\n" + dialog_text + "\n\nSummary:"
+                        ),
+                        max_output_tokens=200,
+                    )
+                )
+                summary = resp.text.strip()
+            except Exception:
+                logger.warning(
+                    "Summary generation failed for episode %d of session %s",
+                    ep.index,
+                    self._runner.session_id,
+                )
+        ep.summary = summary
+
+        await self._runner._broadcast(
+            {"type": "episode_end", "episode": max(ep_index, 0), "summary": summary}
+        )
         self._runner.episodes_completed += 1
         return ObserverDirective.continue_()
 
@@ -174,7 +209,6 @@ class SessionRunner:
         from roleplay.engine.engine import SimulationEngine
         from roleplay.memory.store import InMemoryStore
 
-        hook = ApiObserverHook(self)
         memory_store = InMemoryStore()
         try:
             provider = _build_registry().get(state.config.default_provider)
@@ -184,6 +218,7 @@ class SessionRunner:
 
                 other = tuple(m for m in _DEFAULT_MODELS if m != state.config.default_model)
                 provider = GeminiProvider(models=(state.config.default_model, *other))
+            hook = ApiObserverHook(self, provider)
             engine = SimulationEngine(
                 state=state,
                 provider=provider,

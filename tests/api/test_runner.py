@@ -107,9 +107,20 @@ class TestApiObserverHook:
         state.history.completed_episodes.return_value = []
         return state
 
+    def _make_provider(self) -> MagicMock:
+        provider = MagicMock()
+        resp = MagicMock()
+        resp.text = "Alice and Bob discussed the experiment."
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+        return provider
+
     async def test_before_episode_broadcasts_start(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner)
+        hook = ApiObserverHook(runner, self._make_provider())
         state = self._make_state()
         q = runner.subscribe()
 
@@ -123,7 +134,7 @@ class TestApiObserverHook:
     async def test_before_episode_halts_when_paused(self) -> None:
         runner = self._make_runner()
         runner._pause_requested = True
-        hook = ApiObserverHook(runner)
+        hook = ApiObserverHook(runner, self._make_provider())
         state = self._make_state()
 
         directive = await hook.before_episode(state, 0)
@@ -134,7 +145,7 @@ class TestApiObserverHook:
 
     async def test_after_turn_broadcasts_turn(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner)
+        hook = ApiObserverHook(runner, self._make_provider())
         state = self._make_state()
         q = runner.subscribe()
 
@@ -152,14 +163,18 @@ class TestApiObserverHook:
 
     async def test_after_episode_increments_count(self) -> None:
         runner = self._make_runner()
-        hook = ApiObserverHook(runner)
+        hook = ApiObserverHook(runner, self._make_provider())
         state = self._make_state()
         state.history.completed_episodes.return_value = [MagicMock()]
         q = runner.subscribe()
 
-        directive = await hook.after_episode(state, MagicMock())
+        ep = MagicMock()
+        ep.turns = []  # empty — skips summary generation
+        ep.index = 0
+        directive = await hook.after_episode(state, ep)
 
         assert not directive.is_halt
         assert runner.episodes_completed == 1
         event = q.get_nowait()
         assert event["type"] == "episode_end"
+        assert "summary" in event
