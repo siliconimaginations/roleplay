@@ -65,6 +65,25 @@ class Persona:
     knowledge: tuple[str, ...] = ()
     constraints: tuple[str, ...] = ()
 
+    def to_export_dict(self) -> dict[str, object]:
+        """Serialise to a portable dict, omitting empty fields.
+
+        Used by the export endpoint and CLI export command to produce a
+        consistent representation without duplicating serialisation logic.
+        """
+        d: dict[str, object] = {}
+        if self.description:
+            d["description"] = self.description
+        if self.goals:
+            d["goals"] = list(self.goals)
+        if self.traits:
+            d["traits"] = list(self.traits)
+        if self.knowledge:
+            d["knowledge"] = list(self.knowledge)
+        if self.constraints:
+            d["constraints"] = list(self.constraints)
+        return d
+
 
 # ---------------------------------------------------------------------------
 # StateChange (immutable log entry)

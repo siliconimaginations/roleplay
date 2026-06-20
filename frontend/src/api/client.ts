@@ -120,3 +120,6 @@ export async function getSessionHistory(sessionId: string): Promise<import("./ty
 
 export const getSessionYaml = (id: string): Promise<{ yaml: string }> =>
   apiFetch(`/sessions/${id}/yaml`);
+
+export const getSessionExport = (id: string): Promise<Record<string, unknown>> =>
+  apiFetch(`/sessions/${id}/export`);

@@ -252,3 +252,69 @@ parties:
         r = await client.get("/sessions")
         assert r.status_code == 200
         assert r.json() == []
+
+
+class TestExportSession:
+    @pytest.mark.asyncio
+    async def test_export_returns_200(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        r = await client.get("/sessions/test-session-001/export")
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_export_top_level_keys(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        assert body["export_version"] == "1"
+        assert "exported_at" in body
+        assert "session" in body
+        assert "config" in body
+        assert "parties" in body
+        assert "environment" in body
+        assert "episodes" in body
+
+    @pytest.mark.asyncio
+    async def test_export_session_metadata(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        sess = body["session"]
+        assert sess["id"] == "test-session-001"
+        assert "status" in sess
+        assert sess["episode_count"] == 0  # no episodes run
+
+    @pytest.mark.asyncio
+    async def test_export_includes_parties_with_names(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        party_ids = {p["id"] for p in body["parties"]}
+        assert "alice" in party_ids
+        assert "bob" in party_ids
+        # environment is in its own key, not parties list
+        assert "room" not in party_ids
+
+    @pytest.mark.asyncio
+    async def test_export_environment_separate(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        assert body["environment"]["id"] == "room"
+
+    @pytest.mark.asyncio
+    async def test_export_episodes_empty_before_run(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        assert body["episodes"] == []
+
+    @pytest.mark.asyncio
+    async def test_export_nonexistent_session_returns_404(self, client: AsyncClient) -> None:
+        r = await client.get("/sessions/does-not-exist/export")
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_export_config_fields(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        body = (await client.get("/sessions/test-session-001/export")).json()
+        cfg = body["config"]
+        assert cfg["default_provider"] == "mock"
+        assert "context_window_episodes" in cfg
+        assert "memory_max_entries" in cfg
+        assert "environment_reactive" in cfg
