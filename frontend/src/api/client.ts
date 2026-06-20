@@ -89,5 +89,5 @@ export const injectEvent = (
   });
 
 export async function getSessionHistory(sessionId: string): Promise<import("./types").HistoryEpisode[]> {
-  return request<import("./types").HistoryEpisode[]>(`/sessions/${sessionId}/history`);
+  return apiFetch<import("./types").HistoryEpisode[]>(`/sessions/${sessionId}/history`);
 }
