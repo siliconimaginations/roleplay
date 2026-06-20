@@ -97,9 +97,7 @@ class ApiObserverHook:
         # Generate a 1-2 sentence summary via LLM; fall back to empty string on error.
         summary = ""
         if ep.turns:
-            dialog_text = "\n\n".join(
-                f"{t.party_id.upper()}: {t.output}" for t in ep.turns
-            )
+            dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
             try:
                 from roleplay.providers.base import CompletionRequest
 
@@ -109,7 +107,8 @@ class ApiObserverHook:
                             "You are summarizing a roleplay scene. "
                             "Write 1-2 sentences describing what happened, any decisions reached, "
                             "and key dynamics. Be specific and concise. "
-                            "Output only the summary — no bullet points, no headers, no preamble.\n\n"
+                            "Output only the summary - no bullet points, no headers,"
+                            " no preamble.\n\n"
                             "Dialog:\n" + dialog_text + "\n\nSummary:"
                         ),
                         max_output_tokens=200,

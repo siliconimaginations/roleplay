@@ -698,7 +698,8 @@ class SqlitePersistenceLayer:
             ep_rows = await (
                 await db.execute(
                     "SELECT episode_id, episode_index, simulated_time_start, "
-                    "simulated_time_end, started_at, ended_at, summary FROM episodes WHERE session_id = ?",
+                    "simulated_time_end, started_at, ended_at, summary"
+                    " FROM episodes WHERE session_id = ?",
                     (session_id,),
                 )
             ).fetchall()
@@ -707,7 +708,8 @@ class SqlitePersistenceLayer:
                 await db.execute(
                     "INSERT INTO episodes "
                     "(episode_id, session_id, episode_index, simulated_time_start, "
-                    "simulated_time_end, started_at, ended_at, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "simulated_time_end, started_at, ended_at, summary)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         new_ep_id,
                         new_session_id,

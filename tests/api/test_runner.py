@@ -111,6 +111,7 @@ class TestApiObserverHook:
         provider = MagicMock()
         resp = MagicMock()
         resp.text = "Alice and Bob discussed the experiment."
+
         async def _complete(req: object) -> MagicMock:
             return resp
 
