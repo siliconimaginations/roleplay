@@ -46,18 +46,36 @@ class TestCreateSession:
         resp = await client.post("/sessions", content=b"")
         assert resp.status_code == 422
 
-    async def test_create_missing_environment_returns_422(self, client: AsyncClient) -> None:
-        yaml_no_env = """\
-session_id: "no-env"
+    async def test_create_no_env_party_synthesises_world(self, client: AsyncClient) -> None:
+        """No kind=environment party: system synthesises one, session is created."""
+        yaml_no_env = """session_id: "no-env-synth"
 config:
   default_provider: mock
 parties:
   - id: alice
     kind: person
     name: Alice
-    system_prompt: "You are Alice."
 """
         resp = await client.post("/sessions", content=yaml_no_env)
+        assert resp.status_code == 201
+
+    async def test_create_multiple_env_parties_returns_422(self, client: AsyncClient) -> None:
+        """More than one kind=environment party is still a validation error."""
+        yaml_multi_env = """session_id: "multi-env"
+config:
+  default_provider: mock
+parties:
+  - id: world1
+    kind: environment
+    name: World1
+  - id: world2
+    kind: environment
+    name: World2
+  - id: alice
+    kind: person
+    name: Alice
+"""
+        resp = await client.post("/sessions", content=yaml_multi_env)
         assert resp.status_code == 422
 
     async def test_create_missing_parties_returns_422(self, client: AsyncClient) -> None:
@@ -207,8 +225,8 @@ class TestValidateSession:
         assert body["errors"] == []
 
     @pytest.mark.asyncio
-    async def test_missing_environment_returns_errors(self, client: AsyncClient) -> None:
-        """Scenario with no environment party → validation error."""
+    async def test_no_env_party_is_valid(self, client: AsyncClient) -> None:
+        """Scenario with no environment party is valid -- world is synthesised."""
         yaml_no_env = b"""\
 session_id: no-env
 config:
@@ -221,10 +239,33 @@ parties:
       description: A person.
 """
         r = await client.post("/sessions/validate", content=yaml_no_env)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is True
+
+    @pytest.mark.asyncio
+    async def test_multiple_env_parties_returns_errors(self, client: AsyncClient) -> None:
+        """More than one kind=environment party is still invalid."""
+        yaml_multi = b"""\
+session_id: multi-env
+config:
+  default_provider: mock
+parties:
+  - id: w1
+    kind: environment
+    name: World1
+  - id: w2
+    kind: environment
+    name: World2
+  - id: alice
+    kind: person
+    name: Alice
+"""
+        r = await client.post("/sessions/validate", content=yaml_multi)
         assert r.status_code == 422
         body = r.json()
         assert body["valid"] is False
-        assert len(body["errors"]) > 0
+        assert any("kind='environment'" in e for e in body["errors"])
 
     @pytest.mark.asyncio
     async def test_empty_body_returns_error(self, client: AsyncClient) -> None:

@@ -84,10 +84,12 @@ def _collect_errors(data: dict[str, Any]) -> list[str]:
         errors.append("'parties' list is required and must not be empty")
 
     env_parties = [p for p in parties if p.get("kind") == "environment"]
-    if len(env_parties) == 0:
-        errors.append("Exactly one party with kind='environment' is required")
-    elif len(env_parties) > 1:
-        errors.append(f"Only one environment party is allowed; found {len(env_parties)}")
+    if len(env_parties) > 1:
+        errors.append(
+            f"Only one party with kind='environment' is allowed (found {len(env_parties)}). "
+            "Named locations belong in the top-level 'environments:' list, not as extra "
+            "kind=environment parties."
+        )
 
     for p in parties:
         if "id" not in p:
@@ -283,7 +285,15 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
                 party.apply_state_update(initial_state, episode_index=0)
             parties[pid] = party
 
-    assert environment is not None  # validated above
+    # If no kind=environment party was declared, synthesise a minimal one so that
+    # scenarios relying solely on the top-level ``environments:`` list still work.
+    if environment is None:
+        description_text = str(data.get("description", "")) or "The world of this simulation."
+        environment = make_environment(
+            "world",
+            "World",
+            setting=description_text,
+        )
 
     # ── Environments ─────────────────────────────────────────────────────────
     named_environments: list[Environment] = []
