@@ -117,3 +117,6 @@ export const injectEvent = (
 export async function getSessionHistory(sessionId: string): Promise<import("./types").HistoryEpisode[]> {
   return apiFetch<import("./types").HistoryEpisode[]>(`/sessions/${sessionId}/history`);
 }
+
+export const getSessionYaml = (id: string): Promise<{ yaml: string }> =>
+  apiFetch(`/sessions/${id}/yaml`);
