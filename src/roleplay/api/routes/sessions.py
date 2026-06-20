@@ -6,6 +6,7 @@ import uuid
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from roleplay.api.auth import require_api_key
 from roleplay.api.schemas import PartySchema, SessionDetail, SessionSummary
@@ -279,10 +280,16 @@ async def validate_session(
     try:
         yaml_text = body.decode("utf-8")
     except UnicodeDecodeError:
-        return {"valid": False, "errors": ["Request body must be valid UTF-8 YAML text"]}
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": ["Request body must be valid UTF-8 YAML text"]},
+        )
 
     if not yaml_text.strip():
-        return {"valid": False, "errors": ["Scenario is empty"]}
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": ["Scenario is empty"]},
+        )
 
     with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as tmp:
         tmp.write(yaml_text)
@@ -292,9 +299,15 @@ async def validate_session(
         load_yaml_scenario(tmp_path)
         return {"valid": True, "errors": []}
     except ValidationError as exc:
-        return {"valid": False, "errors": exc.errors}
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": exc.errors},
+        )
     except Exception as exc:
-        return {"valid": False, "errors": [f"Invalid YAML: {exc}"]}
+        return JSONResponse(
+            status_code=422,
+            content={"valid": False, "errors": [f"Invalid YAML: {exc}"]},
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 

@@ -766,6 +766,11 @@ def validate(
         typer.echo(f"Error: file not found: {scenario}", err=True)
         raise typer.Exit(1)
 
+    content = scenario.read_text(encoding="utf-8")
+    if not content.strip():
+        typer.echo(f"Error: {scenario} is empty", err=True)
+        raise typer.Exit(1)
+
     try:
         load_yaml_scenario(scenario)
         typer.echo(f"✓ {scenario} is valid.")

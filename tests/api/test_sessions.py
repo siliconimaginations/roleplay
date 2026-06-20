@@ -221,7 +221,7 @@ parties:
       description: A person.
 """
         r = await client.post("/sessions/validate", content=yaml_no_env)
-        assert r.status_code == 200
+        assert r.status_code == 422
         body = r.json()
         assert body["valid"] is False
         assert len(body["errors"]) > 0
@@ -229,7 +229,7 @@ parties:
     @pytest.mark.asyncio
     async def test_empty_body_returns_error(self, client: AsyncClient) -> None:
         r = await client.post("/sessions/validate", content=b"   ")
-        assert r.status_code == 200
+        assert r.status_code == 422
         body = r.json()
         assert body["valid"] is False
 
@@ -240,7 +240,7 @@ parties:
             content=b"\xff\xfe bad bytes",
             headers={"Content-Type": "text/plain"},
         )
-        assert r.status_code == 200
+        assert r.status_code == 422
         body = r.json()
         assert body["valid"] is False
         assert any("UTF-8" in e for e in body["errors"])
