@@ -178,6 +178,12 @@ class SessionRunner:
         memory_store = InMemoryStore()
         try:
             provider = _build_registry().get(state.config.default_provider)
+            # If the scenario specified a preferred model, prepend it to the fallback chain.
+            if state.config.default_model and hasattr(provider, "models"):
+                from roleplay.providers.gemini import _DEFAULT_MODELS, GeminiProvider
+
+                other = tuple(m for m in _DEFAULT_MODELS if m != state.config.default_model)
+                provider = GeminiProvider(models=(state.config.default_model, *other))
             engine = SimulationEngine(
                 state=state,
                 provider=provider,

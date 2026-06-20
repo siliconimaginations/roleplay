@@ -200,7 +200,10 @@ async def stream_session(
             await websocket.close(code=4001)
             return
 
-    await websocket.send_text(json.dumps({"type": "connected"}))
+    try:
+        await websocket.send_text(json.dumps({"type": "connected"}))
+    except Exception:
+        return  # client already disconnected before we could greet them
 
     # Access app state directly from the WebSocket scope
     _app_state = websocket.app.state

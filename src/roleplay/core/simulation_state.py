@@ -37,6 +37,7 @@ class SimulationConfig:
         }
     )
     default_provider: str = "gemini"
+    default_model: str = ""  # If set, used as the primary model for the chosen provider.
     environment_reactive: bool = True
     auto_checkpoint: bool = True
     passive_observation_parties: list[str] = field(default_factory=list)

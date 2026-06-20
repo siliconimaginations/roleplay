@@ -21,26 +21,15 @@ from roleplay.providers.base import (
 logger = logging.getLogger(__name__)
 
 # Default fallback chain — ordered cheapest/fastest first, then by RPD headroom.
-#
-# Only models with confirmed free-tier RPD quota are included.  Models with
-# 0/0 RPD (e.g. gemini-2.0-flash, gemini-2.5-pro) are excluded: every call
-# to them immediately returns a 429, burning all retry budget for nothing.
-# Approximate free-tier RPD at time of writing (verify at
-# https://aistudio.google.com/apikey → Rate Limits):
-#
-#   gemini-2.5-flash-lite   20 RPD   fastest, cheapest
-#   gemini-2.5-flash        20 RPD   better quality
-#   gemini-3.5-flash        20 RPD   newer generation
-#   gemini-3.1-flash-lite  500 RPD   high-quota fallback  ← key tier
-#   gemma-4-26b-a4b-it    1500 RPD   very generous quota
-#   gemma-4-31b-it        1500 RPD   largest open model
+# Verify current free-tier limits at https://aistudio.google.com/apikey → Rate Limits.
+# The scenario YAML can override the primary model via config.default_model.
 _DEFAULT_MODELS = (
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemma-4-26b-a4b-it",
-    "gemma-4-31b-it",
+    "gemini-2.0-flash",  # stable, widely available
+    "gemini-2.0-flash-lite",  # faster, lower cost
+    "gemini-2.5-flash-lite",  # newer lite tier
+    "gemini-2.5-flash",  # higher quality fallback
+    "gemini-3.1-flash-lite",  # high-quota fallback
+    "gemini-3.5-flash",  # newest generation
 )
 
 # Maximum number of RPM retries before a model is added to the session skip list.

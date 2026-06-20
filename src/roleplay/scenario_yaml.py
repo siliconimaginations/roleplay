@@ -231,6 +231,7 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
         compaction_threshold=int(cfg_raw.get("compaction_threshold", 200)),
         forgetting_enabled=bool(cfg_raw.get("forgetting_enabled", False)),
         default_provider=provider_name,
+        default_model=str(cfg_raw.get("default_model", "")),
         environment_reactive=bool(cfg_raw.get("environment_reactive", True)),
         auto_checkpoint=bool(cfg_raw.get("auto_checkpoint", True)),
         passive_observation_parties=list(cfg_raw.get("passive_observation_parties", [])),
