@@ -344,7 +344,6 @@ def run(
     _run(_run_cmd(scenario, max_episodes, provider, output, interactive, db, env_file))
 
 
-
 def _make_registry() -> ProviderRegistry:
     """Build a ProviderRegistry pre-populated with all built-in providers."""
     from roleplay.providers.claude_provider import ClaudeProvider
@@ -464,6 +463,7 @@ async def _resume_cmd(
     from roleplay.engine.engine import SimulationEngine
     from roleplay.memory.store import InMemoryStore
     from roleplay.persistence import SessionNotFoundError
+
     load_env_file(Path(env_file))
     layer = await _open_layer(_db_path(db))
     try:
