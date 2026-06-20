@@ -14,6 +14,7 @@ from roleplay.persistence.base import SessionNotFoundError
 
 if TYPE_CHECKING:
     from roleplay.api.runner import RunStatusLiteral
+    from roleplay.core.party import Persona
     from roleplay.core.simulation_state import SimulationState
     from roleplay.persistence.base import PersistenceLayer
 
@@ -443,23 +444,19 @@ async def get_session_yaml(
 
     cfg = state.config
 
-    def _persona_dict(persona: object) -> dict[str, object]:
+    def _persona_dict(persona: Persona) -> dict[str, object]:
+        """Serialise a :class:`Persona` to a plain dict, omitting empty fields."""
         d: dict[str, object] = {}
-        desc = getattr(persona, "description", None)
-        if desc:
-            d["description"] = desc
-        goals = getattr(persona, "goals", None)
-        if goals:
-            d["goals"] = list(goals)
-        traits = getattr(persona, "traits", None)
-        if traits:
-            d["traits"] = list(traits)
-        knowledge = getattr(persona, "knowledge", None)
-        if knowledge:
-            d["knowledge"] = list(knowledge)
-        constraints = getattr(persona, "constraints", None)
-        if constraints:
-            d["constraints"] = list(constraints)
+        if persona.description:
+            d["description"] = persona.description
+        if persona.goals:
+            d["goals"] = list(persona.goals)
+        if persona.traits:
+            d["traits"] = list(persona.traits)
+        if persona.knowledge:
+            d["knowledge"] = list(persona.knowledge)
+        if persona.constraints:
+            d["constraints"] = list(persona.constraints)
         return d
 
     parties_list = []
