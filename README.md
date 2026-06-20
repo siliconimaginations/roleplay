@@ -95,6 +95,13 @@ uv run roleplay run my_scenario.yaml
 # Override the number of episodes
 uv run roleplay run my_scenario.yaml --max-episodes 10
 
+# Verbosity levels (default: 1 — full turn dialog)
+uv run roleplay run my_scenario.yaml --verbosity 0   # AI summary per episode only
+uv run roleplay run my_scenario.yaml --verbosity 2   # 80-char excerpts + AI summary
+
+# Show a spinner while waiting for the LLM
+uv run roleplay run my_scenario.yaml --watch
+
 # Use a different LLM provider
 uv run roleplay run my_scenario.yaml --provider mock   # No API key needed
 
@@ -289,12 +296,15 @@ Roleplay ships a React + Vite single-page application served by the FastAPI back
 
 ```bash
 # Terminal 1 — backend
-ROLEPLAY_API_KEY=dev uv run uvicorn roleplay.api.app:app --reload
+export GEMINI_API_KEY=your_gemini_key   # required for Gemini provider
+export ROLEPLAY_API_KEY=dev              # any string; use the same value in the UI
+uv run uvicorn roleplay.api.app:app --reload
 
 # Terminal 2 — frontend dev server (proxies /sessions and /health to :8000)
 cd frontend
 npm install
 npm run dev          # Opens http://localhost:5173
+# Enter the same ROLEPLAY_API_KEY value ("dev") when the UI asks for an API key
 ```
 
 ### Production build
@@ -309,8 +319,19 @@ uv run uvicorn roleplay.api.app:app --host 0.0.0.0 --port 8000
 
 ```bash
 docker build -t roleplay .
-docker run -p 8000:8000 -e ROLEPLAY_API_KEY=secret roleplay
+docker run -p 8000:8000 \
+  -e ROLEPLAY_API_KEY=secret \
+  -e GEMINI_API_KEY=your_gemini_key \
+  roleplay
 # Visit http://localhost:8000
+# Enter "secret" when the UI prompts for an API key
+```
+
+Or with docker-compose:
+
+```bash
+# Edit docker-compose.yml to set GEMINI_API_KEY, then:
+docker compose up
 ```
 
 ### Features
@@ -320,6 +341,7 @@ docker run -p 8000:8000 -e ROLEPLAY_API_KEY=secret roleplay
 | **Sessions list** | See all sessions, their status and episode count; refresh auto-polls every 5 s |
 | **Create session** | Paste or edit a YAML scenario and submit — session is created immediately |
 | **Live stream** | Watch turns stream in real time via WebSocket; colour-coded per party |
+| **Summary / Detail toggle** | Switch between a compact one-line-per-episode summary view and the full turn-by-turn dialog (with AI-generated summary shown below each episode) |
 | **Run / Pause** | Start N episodes or pause mid-run from the browser |
 | **Inject event** | Push a narrative event into the running simulation |
 | **Inspector** | Browse party state, environment state, and session config |
@@ -361,6 +383,7 @@ Omit the env var entirely for unauthenticated dev mode.
 | `GET` | `/sessions/{id}/status` | Get run status |
 | `POST` | `/sessions/{id}/pause` | Request pause after current turn |
 | `POST` | `/sessions/{id}/inject` | Inject narrative text into next episode |
+| `GET` | `/sessions/{id}/history` | Episode + turn history (includes AI summaries) |
 | `WS` | `/sessions/{id}/stream` | WebSocket live event stream |
 
 ### Create a session

@@ -51,6 +51,7 @@ export interface EpisodeStartEvent {
 export interface EpisodeEndEvent {
   type: "episode_end";
   episode: number;
+  summary: string;
 }
 
 export interface SimulationCompleteEvent {
@@ -85,5 +86,6 @@ export interface HistoryTurn {
 export interface HistoryEpisode {
   episode: number;
   done: boolean;
+  summary: string;
   turns: HistoryTurn[];
 }

@@ -14,6 +14,7 @@ interface EpisodeGroup {
   episode: number;
   turns: TurnCard[];
   done: boolean;
+  summary: string;
 }
 
 const PARTY_COLORS: string[] = [
@@ -43,6 +44,8 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   const [injectText, setInjectText] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "summary" = one-line per episode; "detail" = full turn dialog + summary
+  const [viewMode, setViewMode] = useState<"summary" | "detail">("detail");
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<SimulationStream | null>(null);
 
@@ -58,12 +61,13 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   // Load persisted history on mount so returning to a completed session shows past turns.
   useEffect(() => {
     getSessionHistory(sessionId)
-      .then((episodes) => {
-        if (episodes.length > 0) {
+      .then((eps) => {
+        if (eps.length > 0) {
           setGroups(
-            episodes.map((ep) => ({
+            eps.map((ep) => ({
               episode: ep.episode,
               done: ep.done,
+              summary: ep.summary ?? "",
               turns: ep.turns.map((t) => ({
                 episode: t.episode,
                 party_id: t.party_id,
@@ -77,7 +81,6 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
       .catch(() => {});
   }, [sessionId]);
 
-
   useEffect(() => {
     const stream = new SimulationStream(sessionId);
     streamRef.current = stream;
@@ -88,7 +91,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
         case "episode_start":
           setGroups((g) => {
             if (g.find((x) => x.episode === ev.episode)) return g;
-            return [...g, { episode: ev.episode, turns: [], done: false }];
+            return [...g, { episode: ev.episode, turns: [], done: false, summary: "" }];
           });
           break;
         case "turn":
@@ -114,15 +117,16 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
         case "episode_end":
           setGroups((g) =>
             g.map((ep) =>
-              ep.episode === ev.episode ? { ...ep, done: true } : ep,
+              ep.episode === ev.episode
+                ? { ...ep, done: true, summary: ev.summary ?? "" }
+                : ep,
             ),
           );
           break;
         case "simulation_complete":
           setStatus("done");
           onStatusChange?.("done");
-          // Reload history to guarantee all turns are visible (fast providers
-          // may complete before WS events flush to the client).
+          // Reload history to guarantee all turns + summaries are visible.
           getSessionHistory(sessionId)
             .then((eps) => {
               if (eps.length > 0) {
@@ -130,6 +134,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
                   eps.map((ep) => ({
                     episode: ep.episode,
                     done: ep.done,
+                    summary: ep.summary ?? "",
                     turns: ep.turns.map((t) => ({
                       episode: t.episode,
                       party_id: t.party_id,
@@ -253,6 +258,32 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
 
         <div className="flex-1" />
 
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 bg-gray-800 rounded p-0.5">
+          <button
+            onClick={() => setViewMode("summary")}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              viewMode === "summary"
+                ? "bg-gray-600 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+            title="Summary view — one line per episode"
+          >
+            Summary
+          </button>
+          <button
+            onClick={() => setViewMode("detail")}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              viewMode === "detail"
+                ? "bg-gray-600 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+            title="Detail view — full dialog"
+          >
+            Detail
+          </button>
+        </div>
+
         <input
           value={injectText}
           onChange={(e) => setInjectText(e.target.value)}
@@ -284,47 +315,87 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           </div>
         )}
 
-        {groups.map((ep) => (
-          <div key={ep.episode}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Episode {ep.episode + 1}
-              </span>
-              <div className="flex-1 h-px bg-gray-800" />
-              {ep.done && (
-                <span className="text-xs text-green-600">✓ done</span>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {ep.turns.map((turn, i) => (
-                <div
-                  key={i}
-                  className={`rounded-lg border-l-2 px-4 py-3 ${partyColor(turn.party_id, partyIds)}`}
-                >
-                  <div className="mb-1">
-                    <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">
-                      {turn.party_id}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">
-                    {turn.output}
-                  </p>
-                  {Object.keys(turn.proposals).length > 0 && (
-                    <details className="mt-2">
-                      <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">
-                        State updates ({Object.keys(turn.proposals).length})
-                      </summary>
-                      <pre className="mt-1 text-xs text-gray-400 bg-gray-900 rounded p-2 overflow-auto">
-                        {JSON.stringify(turn.proposals, null, 2)}
-                      </pre>
-                    </details>
+        {viewMode === "summary" ? (
+          /* ── Summary view ── */
+          <div className="space-y-2">
+            {groups.map((ep) => (
+              <div
+                key={ep.episode}
+                className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-gray-900/50 border border-gray-800"
+              >
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap pt-0.5">
+                  Ep {ep.episode + 1}
+                </span>
+                <span className="text-sm text-gray-300 leading-relaxed flex-1">
+                  {ep.done
+                    ? ep.summary || (
+                        <span className="text-gray-600 italic">No summary available.</span>
+                      )
+                    : <span className="text-gray-600 italic">Running…</span>}
+                </span>
+                {ep.done && (
+                  <span className="text-xs text-green-700 pt-0.5">✓</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* ── Detail view ── */
+          <>
+            {groups.map((ep) => (
+              <div key={ep.episode}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Episode {ep.episode + 1}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-800" />
+                  {ep.done && (
+                    <span className="text-xs text-green-600">✓ done</span>
                   )}
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
+
+                <div className="space-y-3">
+                  {ep.turns.map((turn, i) => (
+                    <div
+                      key={i}
+                      className={`rounded-lg border-l-2 px-4 py-3 ${partyColor(turn.party_id, partyIds)}`}
+                    >
+                      <div className="mb-1">
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">
+                          {turn.party_id}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">
+                        {turn.output}
+                      </p>
+                      {Object.keys(turn.proposals).length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">
+                            State updates ({Object.keys(turn.proposals).length})
+                          </summary>
+                          <pre className="mt-1 text-xs text-gray-400 bg-gray-900 rounded p-2 overflow-auto">
+                            {JSON.stringify(turn.proposals, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+
+                  {ep.done && ep.summary && (
+                    <div className="mt-2 px-3 py-2 rounded bg-gray-800/60 border border-gray-700/50">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-2">
+                        Summary
+                      </span>
+                      <span className="text-xs text-gray-400 leading-relaxed">
+                        {ep.summary}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
 
         <div ref={bottomRef} />
       </div>
