@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getApiKey, setApiKey } from "../api/client";
 
 interface Props {
@@ -7,9 +7,24 @@ interface Props {
 }
 
 export function Shell({ children }: Props) {
-  const [showSettings, setShowSettings] = useState(!getApiKey());
+  const [showSettings, setShowSettings] = useState(false);
   const [key, setKey] = useState(getApiKey());
   const [draft, setDraft] = useState(getApiKey());
+
+  // On mount, check whether the server requires an API key.
+  // If it does AND we don't have one stored, open the key modal automatically.
+  useEffect(() => {
+    fetch("/health")
+      .then((r) => r.json())
+      .then((data: { auth_required?: boolean }) => {
+        if (data.auth_required && !getApiKey()) {
+          setShowSettings(true);
+        }
+      })
+      .catch(() => {
+        // Server not reachable yet — don't block the UI.
+      });
+  }, []);
 
   function saveKey() {
     setApiKey(draft);
@@ -37,8 +52,8 @@ export function Shell({ children }: Props) {
             </>
           ) : (
             <>
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-              No API Key
+              <span className="w-2 h-2 rounded-full bg-gray-500 inline-block" />
+              API Key
             </>
           )}
         </button>
@@ -64,14 +79,12 @@ export function Shell({ children }: Props) {
               className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 mb-4"
             />
             <div className="flex justify-end gap-2">
-              {key && (
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="px-4 py-2 text-sm rounded border border-gray-700 hover:bg-gray-800"
-                >
-                  Cancel
-                </button>
-              )}
+              <button
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-sm rounded border border-gray-700 hover:bg-gray-800"
+              >
+                Cancel
+              </button>
               <button
                 onClick={saveKey}
                 className="px-4 py-2 text-sm rounded bg-blue-600 hover:bg-blue-500 font-medium"
