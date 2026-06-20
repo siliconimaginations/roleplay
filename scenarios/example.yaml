@@ -8,101 +8,118 @@
 #   uv run roleplay run scenarios/example.yaml --provider mock
 #   uv run roleplay run scenarios/example.yaml --provider gemini
 
-# Optional: human-readable description of this scenario
-description: "Alice (negotiator) meets Bob (entrepreneur) at a trade fair"
+description: "A small town drama: the sheriff, the mayor, and Martha the shopkeeper"
 
-# Unique session ID. Omit to auto-generate a UUID.
 session_id: "example-001"
 
 # ---------------------------------------------------------------------------
 # Simulation settings
 # ---------------------------------------------------------------------------
 config:
-  default_provider: gemini       # gemini | claude | mock
-  default_model: gemini-2.0-flash  # optional — overrides the provider default fallback chain
-  max_episodes: 3
+  default_provider: gemini
+  default_model: gemini-2.0-flash
+  max_episodes: 5
   context_window_episodes: 5
   memory_max_entries: 20
-  environment_reactive: true     # environment party gets its own turn each episode
-  goal: "Alice commits to the modular deployment deal without needing further approval"
+  environment_reactive: true
+  goal: "The town reaches a decision on whether to hold the annual festival this year"
 
 # ---------------------------------------------------------------------------
-# Turn scheduler (optional — defaults to round_robin)
+# Named environments (locations parties can move between)
+# Parties declare their current location via a 'location' state key.
+# Only parties sharing a location interact in the same turn.
+# A party can propose STATE: location=<id> to move.
 # ---------------------------------------------------------------------------
-# scheduler:
-#   kind: round_robin            # round_robin | random_order | fixed
-#
-# Fixed order example:
-# scheduler:
-#   kind: fixed
-#   order: [alice, bob]
-#
-# Random order with seed (reproducible):
-# scheduler:
-#   kind: random_order
-#   seed: 42
+environments:
+  - id: town_square
+    name: "Town Square"
+    description: >
+      A busy public space at the centre of Millhaven. Conversations here are
+      overheard by anyone present. The notice board is visible from here.
+    state:
+      "notice_board": "Festival planning meeting — Town Hall, Thursday"
+
+  - id: town_hall
+    name: "Town Hall"
+    description: >
+      The formal seat of local government. The mayor presides. Proceedings
+      are on the record. A large table dominates the room.
+
+  - id: general_store
+    name: "General Store"
+    description: >
+      Run by Martha. Stocked with everyday goods and local gossip. Rumours
+      spread here faster than anywhere else in town.
+    state:
+      "open": true
 
 # ---------------------------------------------------------------------------
-# Simulated clock (optional — defaults to noop / no time progression)
-# ---------------------------------------------------------------------------
-# clock:
-#   kind: formatted_increment
-#   unit: hours                  # seconds | minutes | hours | days | weeks
-#   amount: 2
-#   format: "%Y-%m-%d %H:%M"
-
-# ---------------------------------------------------------------------------
-# Parties — people, organisations, and the environment
+# Parties
 # ---------------------------------------------------------------------------
 parties:
-  - id: alice
-    kind: person                 # person | organization | environment
-    name: Alice
-    persona:
-      description: "A pragmatic negotiator who values clear outcomes"
-      goals:
-        - "Reach a fair agreement"
-        - "Preserve the long-term relationship"
-      traits:
-        - calm
-        - strategic
-        - direct
-      knowledge:
-        - "Experienced in conflict resolution"
-        - "Familiar with local market rates"
-      constraints:
-        - "Must stay within the approved budget"
-        - "Cannot make binding commitments without sign-off"
-
-  - id: bob
+  - id: sheriff
     kind: person
-    name: Bob
+    name: "Sheriff Cole"
     persona:
-      description: "An optimistic entrepreneur with a strong product vision"
+      description: "A no-nonsense sheriff who keeps the peace and speaks plainly"
       goals:
-        - "Secure funding or partnership"
-        - "Build credibility in the market"
-      traits:
-        - enthusiastic
-        - creative
-        - risk-tolerant
+        - "Maintain order during the festival decision process"
+        - "Make sure any decision is safe and enforceable"
+      traits: [direct, cautious, fair]
       knowledge:
-        - "Has a working product prototype"
-        - "Understands the technical stack deeply"
+        - "Last year's festival had minor incidents that strained his department"
       constraints:
-        - "Limited runway — approximately 6 months of cash remaining"
+        - "Cannot commit additional deputies without the mayor's approval"
+    state:
+      location: town_square      # starts in the town square
+
+  - id: mayor
+    kind: person
+    name: "Mayor Rivera"
+    persona:
+      description: "An ambitious mayor balancing community spirit with budget pressures"
+      goals:
+        - "Make a decision on the festival that satisfies both merchants and residents"
+        - "Protect the town's reputation"
+      traits: [diplomatic, politically savvy, indecisive under pressure]
+      knowledge:
+        - "The festival generates roughly 20% of annual merchant revenue"
+        - "The town budget is tight this year"
+      constraints:
+        - "Needs consensus before committing public funds"
+    state:
+      location: town_hall        # starts in the town hall
+
+  - id: martha
+    kind: person
+    name: "Martha"
+    persona:
+      description: "The general store owner — a sharp-tongued community pillar who hears everything"
+      goals:
+        - "Ensure the festival goes ahead (it's great for business)"
+        - "Keep the community informed and united"
+      traits: [sharp, warm, gossipy, resourceful]
+      knowledge:
+        - "Half the town owes her a favour"
+        - "She already has festival stock on order"
+      constraints:
+        - "Cannot leave the store unattended for long"
+    state:
+      location: general_store    # starts in her store
 
   - id: town
     kind: environment
-    name: Riverside Town
+    name: "Millhaven"
     persona:
-      description: "A small riverside town in early autumn, known for its trade fairs"
+      description: >
+        A small farming town of 800 people in rural New England, late autumn.
+        The community is close-knit, proud of its traditions, and wary of
+        outside interference.
       knowledge:
-        - "The annual trade fair opens in two weeks"
-        - "Economic sentiment in the region is cautiously optimistic"
-        - "The town council recently approved a small-business grant programme"
-    # State keys must match the dot-prefix schema: time.*, weather.*, event.*, location.*
+        - "The annual harvest festival has run for 40 consecutive years"
+        - "This year a drought reduced farm yields by 30%"
+        - "A competing event in the next county is scheduled the same weekend"
     state:
-      "time.simulated": "Day 1, Morning"
-      "weather.condition": "clear"
-      "event.mood": "cautious optimism"
+      "time.simulated": "Monday morning, week before the festival decision deadline"
+      "weather.condition": "overcast, light drizzle"
+      "event.active": "pre-festival tension"
