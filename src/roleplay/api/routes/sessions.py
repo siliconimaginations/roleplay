@@ -512,3 +512,125 @@ async def get_session_yaml(
 
     yaml_text = yaml.dump(doc, default_flow_style=False, allow_unicode=True, sort_keys=False)
     return {"yaml": yaml_text}
+
+
+# ---------------------------------------------------------------------------
+# GET /sessions/{session_id}/export
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/export", response_model=None)
+async def export_session(
+    session_id: str,
+    request: Request,
+    _auth: Auth,
+) -> dict[str, object]:
+    """Export the full session as a clean, portable JSON document.
+
+    The response includes scenario config, party personas, named environments,
+    and all completed episodes (turns + summaries) — everything needed to
+    analyse or replay the session in external tooling.
+    """
+    from datetime import UTC, datetime
+
+    layer = _layer(request)
+    try:
+        state = await layer.load_session(session_id)
+        history = await layer.load_history(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
+
+    runners = _runner_store(request)
+    cfg = state.config
+
+    # --- helpers (same as get_session_yaml) ---
+    def _persona_dict(persona: Persona) -> dict[str, object]:
+        d: dict[str, object] = {}
+        if persona.description:
+            d["description"] = persona.description
+        if persona.goals:
+            d["goals"] = list(persona.goals)
+        if persona.traits:
+            d["traits"] = list(persona.traits)
+        if persona.knowledge:
+            d["knowledge"] = list(persona.knowledge)
+        if persona.constraints:
+            d["constraints"] = list(persona.constraints)
+        return d
+
+    # --- parties ---
+    parties_out: list[dict[str, object]] = []
+    for p in state.parties.values():
+        pd: dict[str, object] = {"id": p.id, "name": p.name, "kind": p.kind.value}
+        persona_d = _persona_dict(p.persona)
+        if persona_d:
+            pd["persona"] = persona_d
+        snap = dict(p.state_snapshot())
+        if snap:
+            pd["initial_state"] = snap
+        parties_out.append(pd)
+
+    # --- environment party ---
+    env = state.environment
+    env_out: dict[str, object] = {"id": env.id, "name": env.name}
+    env_persona = _persona_dict(env.persona)
+    if env_persona:
+        env_out["persona"] = env_persona
+    env_snap = dict(env.state_snapshot())
+    if env_snap:
+        env_out["initial_state"] = env_snap
+
+    # --- named environments ---
+    envs_out: list[dict[str, object]] = []
+    for env_id in state.environments.ids():
+        named = state.environments.get(env_id)
+        if named is not None:
+            ed: dict[str, object] = {
+                "id": named.id,
+                "name": named.name,
+                "description": named.description,
+            }
+            if named.state:
+                ed["state"] = dict(named.state)
+            envs_out.append(ed)
+
+    # --- episodes ---
+    episodes_out: list[dict[str, object]] = [
+        {
+            "episode": ep.index,
+            "summary": ep.summary,
+            "turns": [
+                {
+                    "party_id": t.party_id,
+                    "output": t.output,
+                    "state_update_proposals": t.state_update_proposals,
+                }
+                for t in ep.turns
+            ],
+        }
+        for ep in history.completed_episodes()
+    ]
+
+    doc: dict[str, object] = {
+        "export_version": "1",
+        "exported_at": datetime.now(tz=UTC).isoformat(),
+        "session": {
+            "id": session_id,
+            "status": _session_status(session_id, runners),
+            "episode_count": len(episodes_out),
+        },
+        "config": {
+            "goal": cfg.goal or None,
+            "default_provider": cfg.default_provider,
+            "context_window_episodes": cfg.context_window_episodes,
+            "memory_max_entries": cfg.memory_max_entries,
+            "environment_reactive": cfg.environment_reactive,
+        },
+        "environment": env_out,
+        "parties": parties_out,
+        "episodes": episodes_out,
+    }
+    if envs_out:
+        doc["environments"] = envs_out
+
+    return doc

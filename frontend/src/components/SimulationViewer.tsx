@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WsEvent, RunStatus, RunStatusResponse } from "../api/types";
 import { SimulationStream } from "../api/ws";
-import { runSession, pauseSession, injectEvent, getSessionStatus, getSessionHistory, getSessionYaml } from "../api/client";
+import { runSession, pauseSession, injectEvent, getSessionStatus, getSessionHistory, getSessionYaml, getSessionExport } from "../api/client";
 
 interface TurnCard {
   episode: number;
@@ -286,6 +286,25 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     }
   }
 
+  async function handleExport() {
+    setBusyAction("export");
+    setError(null);
+    try {
+      const data = await getSessionExport(sessionId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `session-${sessionId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   const isRunning = status === "running";
   // Enable inject for any state where a future episode might consume it.
   const canInject = status === "idle" || status === "running" || status === "paused";
@@ -344,6 +363,16 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           title="View scenario YAML config"
         >
           ⚙ Config
+        </button>
+
+        {/* Export history button */}
+        <button
+          disabled={!!busyAction || groups.length === 0}
+          onClick={() => void handleExport()}
+          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 font-medium text-gray-300 disabled:opacity-40"
+          title="Download session history as JSON"
+        >
+          {busyAction === "export" ? "Exporting…" : "⬇ Export"}
         </button>
 
         {/* View mode toggle */}
