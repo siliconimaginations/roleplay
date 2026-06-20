@@ -45,6 +45,12 @@ _SCHEMA_SPEC = textwrap.dedent(
         unit: seconds | minutes | hours | days | weeks
         amount: int
         format: string            # strftime format, e.g. "%Y-%m-%d %H:%M"
+      environments:               # OPTIONAL — named locations parties can occupy
+        - id: string              # unique snake_case identifier
+          name: string            # display name shown in prompts
+          description: string     # narrative description injected into party prompts
+          state:                  # optional static key/value metadata
+            "key": value
       parties:                    # REQUIRED — list of party objects
         - id: string              # REQUIRED, unique snake_case identifier
           kind: person | organization | environment   # REQUIRED
@@ -55,17 +61,19 @@ _SCHEMA_SPEC = textwrap.dedent(
             traits: [string, ...]
             knowledge: [string, ...]
             constraints: [string, ...]
-          state:                  # optional key/value pairs (environment only)
-            "time.simulated": string
+          state:                  # optional initial state key/value pairs
+            "time.simulated": string   # environment party: current simulated time
             "weather.condition": string
-            "event.mood": string
-            "location.name": string
+            "location": string    # person/org: current environment id (e.g. town_square)
 
     RULES:
-    - Exactly ONE party must have kind=environment.
+    - Exactly ONE party must have kind=environment (the global world context).
     - Every party needs id, kind, name.
     - kind values: person, organization, environment (lowercase).
-    - State keys must start with one of: time., weather., event., location.
+    - When environments are defined, assign each person/org party a "location"
+      state key matching one of the environment ids.
+    - Parties in different locations cannot directly interact in the same turn;
+      they must move (propose STATE: location=<id>) to share a space.
     - Output ONLY the YAML — no markdown fences, no explanation, no preamble.
     """
 )

@@ -93,10 +93,25 @@ def _assemble_prompt(
     fixed_len = len(persona_block) + len(suffix)
     remaining = max(0, prompt_char_budget - fixed_len)
 
-    # [2] Environment block
+    # [2] Environment block — global world context + named location description
     env_lines = [f"Environment: {env.name}"]
     for k, v in env.state_snapshot().items():
         env_lines.append(f"  {k}: {v}")
+
+    # If this party has a location and the registry has a matching environment,
+    # append the location description and its state to the environment block.
+    if state.environments:
+        party_location = str(party.state_snapshot().get("location", ""))
+        if party_location:
+            named_env = state.environments.get(party_location)
+            if named_env is not None:
+                env_lines.append(f"\nCurrent location: {named_env.name}")
+                env_lines.append(f"  {named_env.description}")
+                for k, v in named_env.state.items():
+                    env_lines.append(f"  {k}: {v}")
+            else:
+                env_lines.append(f"\nCurrent location: {party_location} (unknown)")
+
     env_block = "\n".join(env_lines)
 
     # [3] Memory block
@@ -203,6 +218,24 @@ class SimulationEngine:
 
         # Turn order from scheduler
         party_ids = list(state.parties.keys())
+
+        # Co-location filter: when environments are defined, restrict each
+        # party's prompt audience to parties sharing the same location.
+        # Parties with no location set are never filtered out (backward compat).
+        def _colocated_ids(speaker_id: str) -> list[str]:
+            """Return party ids that can interact with *speaker_id* this turn."""
+            if not state.environments:
+                return party_ids
+            speaker_loc = str(state.get_party(speaker_id).state_snapshot().get("location", ""))
+            if not speaker_loc:
+                return party_ids
+            return [
+                pid
+                for pid in party_ids
+                if not str(state.get_party(pid).state_snapshot().get("location", ""))
+                or str(state.get_party(pid).state_snapshot().get("location", "")) == speaker_loc
+            ]
+
         scheduled = state.scheduler.schedule(party_ids, ep_index, state.history)
 
         for party_id in scheduled:
@@ -224,11 +257,15 @@ class SimulationEngine:
                 )
                 memories = []
 
+            # Only show turns from parties co-located with this speaker.
+            visible_ids = set(_colocated_ids(party_id))
+            visible_turns = [t for t in current_turns if t.party_id in visible_ids]
+
             prompt = _assemble_prompt(
                 party_id,
                 state,
                 memories,
-                current_turns,
+                visible_turns,
                 context_override,
                 state.config.prompt_char_budget,
             )

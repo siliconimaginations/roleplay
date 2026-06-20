@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from roleplay.core.environment import Environment, EnvironmentRegistry
 from roleplay.core.episode import (
     FixedOrderScheduler,
     FormattedIncrementClock,
@@ -106,6 +107,19 @@ def _collect_errors(data: dict[str, Any]) -> list[str]:
         order = scheduler.get("order", [])
         if not order:
             errors.append("scheduler.kind='fixed' requires a non-empty 'order' list")
+
+    env_ids = [e.get("id") for e in data.get("environments", []) if e.get("id")]
+    if len(env_ids) != len(set(env_ids)):
+        errors.append("environments: duplicate 'id' values are not allowed")
+    for e in data.get("environments", []):
+        if not e.get("id"):
+            errors.append(f"environments: each entry requires an 'id' field: {e!r}")
+        if not e.get("name"):
+            errors.append(f"environments: entry {e.get('id', '<unknown>')!r} is missing 'name'")
+        if not e.get("description"):
+            errors.append(
+                f"environments: entry {e.get('id', '<unknown>')!r} is missing 'description'"
+            )
 
     clock = data.get("clock", {})
     clock_kind = clock.get("kind", "noop")
@@ -204,6 +218,7 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
         "description",
         "config",
         "parties",
+        "environments",
         "clock",
         "scheduler",
         "tools",
@@ -270,6 +285,19 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
 
     assert environment is not None  # validated above
 
+    # ── Environments ─────────────────────────────────────────────────────────
+    named_environments: list[Environment] = []
+    for e in data.get("environments", []):
+        named_environments.append(
+            Environment(
+                id=str(e["id"]),
+                name=str(e["name"]),
+                description=str(e["description"]),
+                state={str(k): v for k, v in e.get("state", {}).items()},
+            )
+        )
+    env_registry = EnvironmentRegistry(named_environments)
+
     # ── Clock & Scheduler ────────────────────────────────────────────────────
     scheduler = _build_scheduler(data.get("scheduler", {}))
     clock = _build_clock(data.get("clock", {}))
@@ -282,6 +310,7 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
         history=SimulationHistory(),
         scheduler=scheduler,
         clock=clock,
+        environments=env_registry,
     )
 
     # ── Tools ────────────────────────────────────────────────────────────────
