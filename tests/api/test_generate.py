@@ -28,12 +28,13 @@ class TestGenerateSession:
         fake_yaml = "session_id: ai-gen\nparties: []\n"
         mock_provider = self._make_provider(fake_yaml)
 
-        with patch(
-            "roleplay.api.runner._build_registry"
-        ) as mock_reg, patch(
-            "roleplay.generate.generate_yaml_scenario",
-            new_callable=AsyncMock,
-            return_value=fake_yaml,
+        with (
+            patch("roleplay.api.runner._build_registry") as mock_reg,
+            patch(
+                "roleplay.generate.generate_yaml_scenario",
+                new_callable=AsyncMock,
+                return_value=fake_yaml,
+            ),
         ):
             registry = MagicMock()
             registry.__contains__ = MagicMock(return_value=True)
@@ -68,12 +69,13 @@ class TestGenerateSession:
     async def test_provider_error_returns_422(self, client: AsyncClient) -> None:
         from roleplay.providers.base import ProviderError
 
-        with patch(
-            "roleplay.api.runner._build_registry"
-        ) as mock_reg, patch(
-            "roleplay.generate.generate_yaml_scenario",
-            new_callable=AsyncMock,
-            side_effect=ProviderError("quota exceeded"),
+        with (
+            patch("roleplay.api.runner._build_registry") as mock_reg,
+            patch(
+                "roleplay.generate.generate_yaml_scenario",
+                new_callable=AsyncMock,
+                side_effect=ProviderError("quota exceeded"),
+            ),
         ):
             registry = MagicMock()
             registry.__contains__ = MagicMock(return_value=True)
