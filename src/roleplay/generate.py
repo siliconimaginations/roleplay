@@ -45,9 +45,11 @@ _SCHEMA_SPEC = textwrap.dedent(
         unit: seconds | minutes | hours | days | weeks
         amount: int
         format: string            # strftime format, e.g. "%Y-%m-%d %H:%M"
-      environments:               # OPTIONAL — named locations parties can occupy
-        - id: string              # unique snake_case identifier
-          name: string            # display name shown in prompts
+      environments:               # OPTIONAL — named LOCATIONS parties can move between
+        # Use this list for physical places (rooms, buildings, towns).
+        # Do NOT use kind=environment parties for locations — put them here instead.
+        - id: string              # unique snake_case identifier (e.g. "town_hall")
+          name: string            # display name shown in prompts (e.g. "Town Hall")
           description: string     # narrative description injected into party prompts
           state:                  # optional static key/value metadata
             "key": value
@@ -64,16 +66,23 @@ _SCHEMA_SPEC = textwrap.dedent(
           state:                  # optional initial state key/value pairs
             "time.simulated": string   # environment party: current simulated time
             "weather.condition": string
-            "location": string    # person/org: current environment id (e.g. town_square)
+            "location": string    # person/org: current environment id (e.g. town_hall)
 
     RULES:
-    - Exactly ONE party must have kind=environment (the global world context).
+    - TWO SEPARATE CONCEPTS — do not confuse them:
+        (A) kind=environment party: the ONE global world-narrator. It takes a turn each
+            episode to react to events and update world state. There is exactly one, and
+            it represents the SETTING as a whole, not any specific location.
+        (B) environments: list: named LOCATIONS parties can physically occupy. Use this
+            for rooms, buildings, or places. Parties move by proposing STATE: location=<id>.
+    - You MAY omit the kind=environment party if you define an environments: list — the
+      system will synthesise a minimal world-narrator automatically. But if you include
+      it, include exactly ONE.
     - Every party needs id, kind, name.
     - kind values: person, organization, environment (lowercase).
     - When environments are defined, assign each person/org party a "location"
       state key matching one of the environment ids.
-    - Parties in different locations cannot directly interact in the same turn;
-      they must move (propose STATE: location=<id>) to share a space.
+    - Parties in different locations cannot directly interact in the same turn.
     - Output ONLY the YAML — no markdown fences, no explanation, no preamble.
     """
 )

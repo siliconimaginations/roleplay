@@ -215,10 +215,37 @@ def test_no_parties_raises(tmp_path: Path) -> None:
         load_yaml_scenario(_write(tmp_path, "parties: []\n"))
 
 
-def test_missing_environment_raises(tmp_path: Path) -> None:
+def test_no_env_party_synthesises_world(tmp_path: Path) -> None:
+    """No kind=environment party: a synthetic 'World' environment is created."""
     yaml = "parties:\n  - id: alice\n    kind: person\n    name: Alice\n"
-    with pytest.raises(ValidationError, match="environment"):
-        load_yaml_scenario(_write(tmp_path, yaml))
+    result = load_yaml_scenario(_write(tmp_path, yaml))
+    assert result.state.environment is not None
+    assert result.state.environment.kind.value == "environment"
+    assert result.state.environment.id == "world"
+
+
+def test_no_env_party_uses_description(tmp_path: Path) -> None:
+    """description field is used as setting for the synthesised environment."""
+    yaml = (
+        "description: 'A rainy London afternoon'\n"
+        "parties:\n  - id: alice\n    kind: person\n    name: Alice\n"
+    )
+    result = load_yaml_scenario(_write(tmp_path, yaml))
+    assert "London" in result.state.environment.persona.description
+
+
+def test_environments_only_no_env_party(tmp_path: Path) -> None:
+    """YAML with only environments: list and no kind=environment party is valid."""
+    yaml = (
+        "environments:\n"
+        "  - id: hall\n    name: Hall\n    description: A long corridor.\n"
+        "parties:\n"
+        "  - id: alice\n    kind: person\n    name: Alice\n"
+        "    state:\n      location: hall\n"
+    )
+    result = load_yaml_scenario(_write(tmp_path, yaml))
+    assert result.state.environment.id == "world"
+    assert len(result.state.environments) == 1
 
 
 def test_multiple_environments_raises(tmp_path: Path) -> None:
@@ -227,7 +254,7 @@ def test_multiple_environments_raises(tmp_path: Path) -> None:
         "  - id: env1\n    kind: environment\n    name: Env1\n"
         "  - id: env2\n    kind: environment\n    name: Env2\n"
     )
-    with pytest.raises(ValidationError, match="Only one environment"):
+    with pytest.raises(ValidationError, match=r"Only one party with kind=.environment"):
         load_yaml_scenario(_write(tmp_path, yaml))
 
 
