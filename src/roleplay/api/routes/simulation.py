@@ -181,6 +181,15 @@ async def stream_session(
 
     await websocket.accept()
 
+    # Subscribe to the runner queue NOW — before auth — so events broadcast
+    # while the auth handshake is in flight are captured, not dropped.
+    _app_state = websocket.app.state
+    runners: dict[str, Any] = _app_state.runners
+    if session_id not in runners:
+        runners[session_id] = SessionRunner(session_id)
+    runner = runners[session_id]
+    q = runner.subscribe()
+
     # Auth
     configured_key = os.environ.get("ROLEPLAY_API_KEY")
     if configured_key is not None:
@@ -192,26 +201,22 @@ async def stream_session(
                     json.dumps({"type": "error", "message": "Invalid API key"})
                 )
                 await websocket.close(code=4003)
+                runner.unsubscribe(q)
                 return
         except (TimeoutError, KeyError, ValueError):
             await websocket.send_text(
                 json.dumps({"type": "error", "message": "Auth timeout or invalid message"})
             )
             await websocket.close(code=4001)
+            runner.unsubscribe(q)
             return
 
     try:
         await websocket.send_text(json.dumps({"type": "connected"}))
     except Exception:
+        runner.unsubscribe(q)
         return  # client already disconnected before we could greet them
 
-    # Access app state directly from the WebSocket scope
-    _app_state = websocket.app.state
-    runners: dict[str, Any] = _app_state.runners
-    if session_id not in runners:
-        runners[session_id] = SessionRunner(session_id)
-    runner = runners[session_id]
-    q = runner.subscribe()
     try:
         while True:
             try:

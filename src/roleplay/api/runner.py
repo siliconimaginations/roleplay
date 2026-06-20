@@ -50,9 +50,15 @@ _QUEUE_MAXSIZE = 512
 class ApiObserverHook:
     """Bridges engine lifecycle callbacks into the runner's event queue."""
 
-    def __init__(self, runner: SessionRunner, provider: Provider) -> None:
+    def __init__(
+        self,
+        runner: SessionRunner,
+        provider: Provider,
+        layer: SqlitePersistenceLayer,
+    ) -> None:
         self._runner = runner
         self._provider = provider
+        self._layer = layer
 
     async def before_episode(
         self,
@@ -122,6 +128,16 @@ class ApiObserverHook:
                     self._runner.session_id,
                 )
         ep.summary = summary
+
+        # Persist immediately so GET /history reflects this episode during a live run.
+        try:
+            await self._layer.save_episode(state.config.session_id, ep)
+        except Exception:
+            logger.warning(
+                "Incremental episode persist failed for session %s episode %d",
+                self._runner.session_id,
+                ep.index,
+            )
 
         await self._runner._broadcast(
             {"type": "episode_end", "episode": max(ep_index, 0), "summary": summary}
@@ -218,7 +234,7 @@ class SessionRunner:
 
                 other = tuple(m for m in _DEFAULT_MODELS if m != state.config.default_model)
                 provider = GeminiProvider(models=(state.config.default_model, *other))
-            hook = ApiObserverHook(self, provider)
+            hook = ApiObserverHook(self, provider, layer)
             engine = SimulationEngine(
                 state=state,
                 provider=provider,
