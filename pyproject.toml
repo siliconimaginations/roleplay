@@ -91,7 +91,7 @@ markers = [
 [tool.coverage.run]
 source = ["src/roleplay"]
 branch = true
-omit = ["src/roleplay/cli.py"]   # CLI entry point tested via integration
+omit = ["src/roleplay/poc.py"]   # Legacy POC; tested separately
 
 [tool.coverage.report]
 show_missing = true
