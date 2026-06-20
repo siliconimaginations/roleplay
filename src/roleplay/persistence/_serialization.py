@@ -195,6 +195,7 @@ def encode_episode_row(session_id: str, ep: Episode) -> dict[str, object]:
         "simulated_time_end": ep.simulated_time_end,
         "started_at": _dt_to_str(ep.started_at),
         "ended_at": _dt_to_str(ep.ended_at) if ep.ended_at else None,
+        "summary": ep.summary,
     }
 
 

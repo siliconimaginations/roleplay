@@ -280,6 +280,7 @@ async def get_session_history(
             {
                 "episode": ep.index,
                 "done": True,
+                "summary": ep.summary,
                 "turns": [
                     {
                         "episode": ep.index,

@@ -85,7 +85,7 @@ class TestMigrations:
     async def test_schema_version_set_to_1(self, layer: SqlitePersistenceLayer) -> None:
         db = layer._db()
         row = await (await db.execute("SELECT MAX(version) FROM schema_version")).fetchone()
-        assert row[0] == 1
+        assert row[0] == 2  # migrations 001 + 002
 
     async def test_migration_not_reapplied_on_second_open(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
@@ -96,7 +96,7 @@ class TestMigrations:
         l2 = SqlitePersistenceLayer(db_path)
         await l2.open()
         row = await (await l2._db().execute("SELECT COUNT(*) FROM schema_version")).fetchone()
-        assert row[0] == 1  # still only one row
+        assert row[0] == 2  # one schema_version row per migration (001 + 002)
         await l2.close()
 
 
@@ -190,7 +190,7 @@ class TestStateChanges:
                 "SELECT COUNT(*) FROM state_changes WHERE session_id = ?", ("test-session",)
             )
         ).fetchone()
-        assert row[0] == 1  # still only one row
+        assert row[0] == 1  # diff-only: second save_state call wrote nothing new
 
     async def test_environment_state_round_trips(self, layer: SqlitePersistenceLayer) -> None:
         state = _make_state()

@@ -96,6 +96,7 @@ class Episode:
     simulated_time_end: str | None = None  # Set when episode closes
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     ended_at: datetime | None = None
+    summary: str = ""  # AI-generated 1-2 sentence summary; populated after episode closes
 
     # ------------------------------------------------------------------
     # Mutation

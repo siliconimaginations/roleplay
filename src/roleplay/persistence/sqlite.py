@@ -382,12 +382,13 @@ class SqlitePersistenceLayer:
             """
             INSERT INTO episodes
               (episode_id, session_id, episode_index, simulated_time_start,
-               simulated_time_end, started_at, ended_at)
+               simulated_time_end, started_at, ended_at, summary)
             VALUES (:episode_id, :session_id, :episode_index, :simulated_time_start,
-                    :simulated_time_end, :started_at, :ended_at)
+                    :simulated_time_end, :started_at, :ended_at, :summary)
             ON CONFLICT(episode_id) DO UPDATE SET
               simulated_time_end = excluded.simulated_time_end,
-              ended_at = excluded.ended_at
+              ended_at = excluded.ended_at,
+              summary = excluded.summary
             """,
             ep_row,
         )
@@ -417,7 +418,7 @@ class SqlitePersistenceLayer:
 
         ep_query = """
             SELECT episode_id, episode_index, simulated_time_start,
-                   simulated_time_end, started_at, ended_at
+                   simulated_time_end, started_at, ended_at, summary
             FROM episodes
             WHERE session_id = ? AND ended_at IS NOT NULL
             ORDER BY episode_index
@@ -458,6 +459,7 @@ class SqlitePersistenceLayer:
                 simulated_time_end=ep_row["simulated_time_end"],
                 started_at=_str_to_dt(ep_row["started_at"]),
                 ended_at=_str_to_dt(ep_row["ended_at"]),
+                summary=ep_row["summary"] or "",
             )
             episodes.append(ep)
 
@@ -696,7 +698,7 @@ class SqlitePersistenceLayer:
             ep_rows = await (
                 await db.execute(
                     "SELECT episode_id, episode_index, simulated_time_start, "
-                    "simulated_time_end, started_at, ended_at FROM episodes WHERE session_id = ?",
+                    "simulated_time_end, started_at, ended_at, summary FROM episodes WHERE session_id = ?",
                     (session_id,),
                 )
             ).fetchall()
@@ -705,7 +707,7 @@ class SqlitePersistenceLayer:
                 await db.execute(
                     "INSERT INTO episodes "
                     "(episode_id, session_id, episode_index, simulated_time_start, "
-                    "simulated_time_end, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "simulated_time_end, started_at, ended_at, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         new_ep_id,
                         new_session_id,
@@ -714,6 +716,7 @@ class SqlitePersistenceLayer:
                         ep["simulated_time_end"],
                         ep["started_at"],
                         ep["ended_at"],
+                        ep["summary"] or "",
                     ),
                 )
                 # Copy turns for this episode
