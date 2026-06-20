@@ -88,6 +88,35 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     const offStatus = stream.onStatus((connected) => setWsConnected(connected));
     const offEvents = stream.on((ev: WsEvent) => {
       switch (ev.type) {
+        case "connected":
+          // WS is live — backfill any episodes that completed before we connected
+          // (incremental DB persistence means history is up-to-date mid-run).
+          getSessionHistory(sessionId)
+            .then((eps) => {
+              if (eps.length > 0) {
+                setGroups((prev) => {
+                  // Merge: keep WS-tracked episodes, fill in any gaps from history.
+                  const known = new Set(prev.map((g) => g.episode));
+                  const missing = eps
+                    .filter((ep) => !known.has(ep.episode))
+                    .map((ep) => ({
+                      episode: ep.episode,
+                      done: ep.done,
+                      summary: ep.summary ?? "",
+                      turns: ep.turns.map((t) => ({
+                        episode: t.episode,
+                        party_id: t.party_id,
+                        output: t.output,
+                        proposals: t.state_update_proposals,
+                      })),
+                    }));
+                  if (missing.length === 0) return prev;
+                  return [...missing, ...prev].sort((a, b) => a.episode - b.episode);
+                });
+              }
+            })
+            .catch(() => {});
+          break;
         case "episode_start":
           setGroups((g) => {
             if (g.find((x) => x.episode === ev.episode)) return g;
