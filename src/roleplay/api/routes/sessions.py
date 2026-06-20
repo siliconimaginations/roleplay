@@ -14,7 +14,6 @@ from roleplay.persistence.base import SessionNotFoundError
 
 if TYPE_CHECKING:
     from roleplay.api.runner import RunStatusLiteral
-    from roleplay.core.party import Persona
     from roleplay.core.simulation_state import SimulationState
     from roleplay.persistence.base import PersistenceLayer
 
@@ -444,35 +443,20 @@ async def get_session_yaml(
 
     cfg = state.config
 
-    def _persona_dict(persona: Persona) -> dict[str, object]:
-        """Serialise a :class:`Persona` to a plain dict, omitting empty fields."""
-        d: dict[str, object] = {}
-        if persona.description:
-            d["description"] = persona.description
-        if persona.goals:
-            d["goals"] = list(persona.goals)
-        if persona.traits:
-            d["traits"] = list(persona.traits)
-        if persona.knowledge:
-            d["knowledge"] = list(persona.knowledge)
-        if persona.constraints:
-            d["constraints"] = list(persona.constraints)
-        return d
-
     parties_list = []
     for p in state.parties.values():
         pd: dict[str, object] = {"id": p.id, "name": p.name, "kind": p.kind.value}
-        persona_d = _persona_dict(p.persona)
+        persona_d = p.persona.to_export_dict()
         if persona_d:
             pd["persona"] = persona_d
         if p.state_snapshot():
             pd["initial_state"] = dict(p.state_snapshot())
         parties_list.append(pd)
 
-    # Environment party — use the same _persona_dict helper for consistency
+    # Environment party
     env = state.environment
     env_dict: dict[str, object] = {"id": env.id, "name": env.name}
-    env_persona = _persona_dict(env.persona)
+    env_persona = env.persona.to_export_dict()
     if env_persona:
         env_dict["persona"] = env_persona
     if env.state_snapshot():
@@ -543,26 +527,11 @@ async def export_session(
     runners = _runner_store(request)
     cfg = state.config
 
-    # --- helpers (same as get_session_yaml) ---
-    def _persona_dict(persona: Persona) -> dict[str, object]:
-        d: dict[str, object] = {}
-        if persona.description:
-            d["description"] = persona.description
-        if persona.goals:
-            d["goals"] = list(persona.goals)
-        if persona.traits:
-            d["traits"] = list(persona.traits)
-        if persona.knowledge:
-            d["knowledge"] = list(persona.knowledge)
-        if persona.constraints:
-            d["constraints"] = list(persona.constraints)
-        return d
-
     # --- parties ---
     parties_out: list[dict[str, object]] = []
     for p in state.parties.values():
         pd: dict[str, object] = {"id": p.id, "name": p.name, "kind": p.kind.value}
-        persona_d = _persona_dict(p.persona)
+        persona_d = p.persona.to_export_dict()
         if persona_d:
             pd["persona"] = persona_d
         snap = dict(p.state_snapshot())
@@ -573,7 +542,7 @@ async def export_session(
     # --- environment party ---
     env = state.environment
     env_out: dict[str, object] = {"id": env.id, "name": env.name}
-    env_persona = _persona_dict(env.persona)
+    env_persona = env.persona.to_export_dict()
     if env_persona:
         env_out["persona"] = env_persona
     env_snap = dict(env.state_snapshot())

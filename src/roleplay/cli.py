@@ -796,18 +796,10 @@ async def _export_cmd(session_id: str, output: Path | None, db: str) -> None:
 
     cfg = state.config
 
-    def _persona_dict(persona: object) -> dict[str, object]:
-        d: dict[str, object] = {}
-        for field in ("description", "goals", "traits", "knowledge", "constraints"):
-            val = getattr(persona, field, None)
-            if val:
-                d[field] = list(val) if not isinstance(val, str) else val
-        return d
-
     parties_out = []
     for p in state.parties.values():
         pd: dict[str, object] = {"id": p.id, "name": p.name, "kind": p.kind.value}
-        persona_d = _persona_dict(p.persona)
+        persona_d = p.persona.to_export_dict()
         if persona_d:
             pd["persona"] = persona_d
         snap = dict(p.state_snapshot())
@@ -817,7 +809,7 @@ async def _export_cmd(session_id: str, output: Path | None, db: str) -> None:
 
     env = state.environment
     env_out: dict[str, object] = {"id": env.id, "name": env.name}
-    env_persona = _persona_dict(env.persona)
+    env_persona = env.persona.to_export_dict()
     if env_persona:
         env_out["persona"] = env_persona
     env_snap = dict(env.state_snapshot())
