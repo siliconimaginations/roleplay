@@ -6,11 +6,15 @@ providers/claude_provider.py, scenario_yaml.py, and cli.py helpers.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from roleplay.providers.claude_provider import ClaudeProvider
 
 # ---------------------------------------------------------------------------
 # validate.py — main() CLI entry + uncovered validation branches
@@ -42,28 +46,28 @@ class TestValidateMain:
     def test_main_exits_0_for_valid_file(self, tmp_path: Path) -> None:
         p = tmp_path / "s.yaml"
         p.write_text(_VALID_YAML)
-        with patch("sys.argv", ["validate", str(p)]):
-            with pytest.raises(SystemExit) as exc:
-                from roleplay.validate import main
-                main()
+        with patch("sys.argv", ["validate", str(p)]), pytest.raises(SystemExit) as exc:
+            from roleplay.validate import main
+
+            main()
         assert exc.value.code == 0
 
     def test_main_exits_1_for_invalid_file(self, tmp_path: Path) -> None:
         p = tmp_path / "bad.yaml"
         p.write_text("parties: []\n")
-        with patch("sys.argv", ["validate", str(p)]):
-            with pytest.raises(SystemExit) as exc:
-                from roleplay.validate import main
-                main()
+        with patch("sys.argv", ["validate", str(p)]), pytest.raises(SystemExit) as exc:
+            from roleplay.validate import main
+
+            main()
         assert exc.value.code == 1
 
     def test_main_quiet_flag_suppresses_warnings(self, tmp_path: Path) -> None:
         p = tmp_path / "s.yaml"
         p.write_text(_VALID_YAML)
-        with patch("sys.argv", ["validate", "--quiet", str(p)]):
-            with pytest.raises(SystemExit) as exc:
-                from roleplay.validate import main
-                main()
+        with patch("sys.argv", ["validate", "--quiet", str(p)]), pytest.raises(SystemExit) as exc:
+            from roleplay.validate import main
+
+            main()
         assert exc.value.code == 0
 
     def test_main_multiple_files(self, tmp_path: Path) -> None:
@@ -71,10 +75,10 @@ class TestValidateMain:
         p2 = tmp_path / "b.yaml"
         p1.write_text(_VALID_YAML)
         p2.write_text(_VALID_YAML)
-        with patch("sys.argv", ["validate", str(p1), str(p2)]):
-            with pytest.raises(SystemExit) as exc:
-                from roleplay.validate import main
-                main()
+        with patch("sys.argv", ["validate", str(p1), str(p2)]), pytest.raises(SystemExit) as exc:
+            from roleplay.validate import main
+
+            main()
         assert exc.value.code == 0
 
 
@@ -91,6 +95,7 @@ class TestValidateBranches:
     def test_context_window_episodes_zero_is_error(self, tmp_path: Path) -> None:
         """Covers lines 234: context_window_episodes < 1 in TOML."""
         import warnings
+
         from roleplay.validate import validate_scenario
 
         toml = """
@@ -129,11 +134,11 @@ description = "E."
 
 
 def _make_engine(
-    provider: object | None = None,
+    provider: MagicMock | None = None,
     *,
     memory_fail_mode: str = "warn",
     env_reactive: bool = False,
-) -> tuple:
+) -> tuple[object, object, object]:
     """Helper returning (engine, state, mock_provider)."""
     from roleplay.core.episode import NoopClock, RoundRobinScheduler, SimulationHistory
     from roleplay.core.party import make_environment, make_person
@@ -144,7 +149,9 @@ def _make_engine(
 
     mock_provider = provider or MagicMock()
     mock_provider.complete = AsyncMock(
-        return_value=CompletionResponse(text="hi", model_used="mock", prompt_tokens=5, completion_tokens=3)
+        return_value=CompletionResponse(
+            text="hi", model_used="mock", prompt_tokens=5, completion_tokens=3
+        )
     )
 
     cfg = SimulationConfig(
@@ -175,7 +182,7 @@ class TestEngineGaps:
         """Covers lines 218-225: memory retrieval failure with warn mode."""
         from roleplay.memory.store import InMemoryStore
 
-        engine, state, _ = _make_engine(memory_fail_mode="warn")
+        engine, _state, _ = _make_engine(memory_fail_mode="warn")
         # Patch memory store to raise on retrieve
         broken_store = InMemoryStore()
         broken_store.retrieve = MagicMock(side_effect=RuntimeError("DB gone"))  # type: ignore[method-assign]
@@ -189,7 +196,7 @@ class TestEngineGaps:
         """Covers lines 218-225 raise branch."""
         from roleplay.memory.store import InMemoryStore
 
-        engine, state, _ = _make_engine(memory_fail_mode="raise")
+        engine, _state, _ = _make_engine(memory_fail_mode="raise")
         broken_store = InMemoryStore()
         broken_store.retrieve = MagicMock(side_effect=RuntimeError("DB gone"))  # type: ignore[method-assign]
         engine._memory_store = broken_store  # type: ignore[attr-defined]
@@ -224,12 +231,14 @@ class TestEngineGaps:
 
         from roleplay.providers.base import CompletionResponse
 
-        async def count_calls(req):  # type: ignore[no-untyped-def]
+        async def count_calls(req: object) -> CompletionResponse:
             nonlocal call_count
             call_count += 1
-            return CompletionResponse(text="hi", model_used="mock", prompt_tokens=2, completion_tokens=2)
+            return CompletionResponse(
+                text="hi", model_used="mock", prompt_tokens=2, completion_tokens=2
+            )
 
-        engine, state, mock_provider = _make_engine(env_reactive=True)
+        engine, _state, mock_provider = _make_engine(env_reactive=True)
         mock_provider.complete = count_calls
 
         await engine.run(max_episodes=1)
@@ -255,23 +264,29 @@ class TestEngineGaps:
 
 class TestClaudeProviderGaps:
     @pytest.fixture
-    def provider(self):  # type: ignore[no-untyped-def]
-        import httpx
+    def provider(self) -> ClaudeProvider:
         from roleplay.providers.claude_provider import ClaudeProvider
 
         return ClaudeProvider(api_key="test-key")
 
     @pytest.mark.asyncio
-    async def test_provider_error_in_call_exhausts_all_models(self, provider) -> None:  # type: ignore[no-untyped-def]
-        """Covers lines 90-93: ProviderError from _call → _try_model returns None → all exhausted."""
+    async def test_provider_error_in_call_exhausts_all_models(
+        self, provider: ClaudeProvider
+    ) -> None:
+        """Covers lines 90-93: ProviderError from _call → _try_model returns None.
+
+        All models exhausted → ProviderExhaustedError.
+        """
         from roleplay.providers.base import CompletionRequest, ProviderError, ProviderExhaustedError
 
-        with patch.object(provider, "_call", side_effect=ProviderError("bad")):
-            with pytest.raises(ProviderExhaustedError):
-                await provider.complete(CompletionRequest(prompt="hi"))
+        with (
+            patch.object(provider, "_call", side_effect=ProviderError("bad")),
+            pytest.raises(ProviderExhaustedError),
+        ):
+            await provider.complete(CompletionRequest(prompt="hi"))
 
     @pytest.mark.asyncio
-    async def test_provider_error_in_try_model_returns_none(self, provider) -> None:  # type: ignore[no-untyped-def]
+    async def test_provider_error_in_try_model_returns_none(self, provider: ClaudeProvider) -> None:
         """Covers lines 90-93: _try_model returns None when _call raises ProviderError."""
         from roleplay.providers.base import CompletionRequest, ProviderError
 
@@ -282,10 +297,14 @@ class TestClaudeProviderGaps:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_retry_after_invalid_float_falls_back_to_default(self, provider) -> None:  # type: ignore[no-untyped-def]
+    async def test_retry_after_invalid_float_falls_back_to_default(
+        self, provider: ClaudeProvider
+    ) -> None:
         """Covers lines 127-129: retry-after header with non-float value."""
         import json
+
         import httpx
+
         from roleplay.providers.base import CompletionRequest, ProviderRateLimitError
 
         bad_header_resp = httpx.Response(
@@ -293,22 +312,27 @@ class TestClaudeProviderGaps:
             content=json.dumps({"error": {"type": "rate_limit_error"}}).encode(),
             headers={"retry-after": "not-a-number"},
         )
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=bad_header_resp):
-            with pytest.raises(ProviderRateLimitError) as exc_info:
-                await provider._call(provider.default_model, CompletionRequest(prompt="hi"))
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=bad_header_resp),
+            pytest.raises(ProviderRateLimitError) as exc_info,
+        ):
+            await provider._call(provider.default_model, CompletionRequest(prompt="hi"))
         # retry_after_seconds should be None since header was unparseable
         assert exc_info.value.retry_after_seconds is None
 
     @pytest.mark.asyncio
-    async def test_500_raises_provider_error(self, provider) -> None:  # type: ignore[no-untyped-def]
+    async def test_500_raises_provider_error(self, provider: ClaudeProvider) -> None:
         """Covers lines 135-136: >= 500 status raises ProviderError (server error)."""
         import httpx
+
         from roleplay.providers.base import CompletionRequest, ProviderError
 
         resp_500 = httpx.Response(500, content=b"Internal Server Error")
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp_500):
-            with pytest.raises(ProviderError, match="Claude server error 500"):
-                await provider._call(provider.default_model, CompletionRequest(prompt="hi"))
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=resp_500),
+            pytest.raises(ProviderError, match="Claude server error 500"),
+        ):
+            await provider._call(provider.default_model, CompletionRequest(prompt="hi"))
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +391,6 @@ tools:
         p.write_text(yaml)
         with pytest.raises(ImportError, match="no_dots_here"):
             load_yaml_scenario(p)
-
 
     def test_organization_party_loaded(self, tmp_path: Path) -> None:
         """Covers line 262: make_organization path."""
@@ -537,7 +560,9 @@ class TestInspectCommandGaps:
 
     def test_inspect_json_format(self, tmp_path: Path) -> None:
         import json
+
         from typer.testing import CliRunner
+
         from roleplay.cli import app
 
         r = CliRunner()
@@ -562,6 +587,7 @@ class TestInspectCommandGaps:
 
     def test_inspect_with_memories_flag(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
+
         from roleplay.cli import app
 
         r = CliRunner()
@@ -607,6 +633,7 @@ class TestInspectCommandGaps:
 
     def test_inspect_with_party_filter(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
+
         from roleplay.cli import app
 
         r = CliRunner()

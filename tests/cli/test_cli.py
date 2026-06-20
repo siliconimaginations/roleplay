@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +14,9 @@ from roleplay.cli import (
     _make_registry,
     app,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 
@@ -109,7 +111,9 @@ class TestStreamPrinter:
         assert "mood=happy" in out
 
     def test_episode_footer_shown(self, capsys: pytest.CaptureFixture[str]) -> None:
-        StreamPrinter().print_episode_footer(0, tokens=150, memories=2, simulated_time_end="t1", wall_secs=1.5)
+        StreamPrinter().print_episode_footer(
+            0, tokens=150, memories=2, simulated_time_end="t1", wall_secs=1.5
+        )
         out = capsys.readouterr().out
         assert "150" in out
 
@@ -141,7 +145,9 @@ class TestCliObserverHook:
         assert not directive.is_halt
 
     @pytest.mark.asyncio
-    async def test_before_episode_shows_max_in_header(self, capsys: pytest.CaptureFixture[str]) -> None:
+    async def test_before_episode_shows_max_in_header(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         hook = _make_hook(max_episodes=2)
         directive = await hook.before_episode(_make_state(), 0)
         assert not directive.is_halt  # halting is engine's job; hook only shows progress
@@ -179,12 +185,14 @@ class TestCliObserverHook:
 
     @pytest.mark.asyncio
     async def test_after_episode_saves_episode(self) -> None:
-        from roleplay.core.episode import Episode, Turn as CoreTurn
+        from roleplay.core.episode import Episode
+        from roleplay.core.episode import Turn as CoreTurn
 
         hook = _make_hook()
         ep = Episode(index=0, turns=[], simulated_time_start="t0")
-        ep.add_turn(CoreTurn(party_id="alice", index=0, output="Hi",
-                             prompt_tokens=10, completion_tokens=5))
+        ep.add_turn(
+            CoreTurn(party_id="alice", index=0, output="Hi", prompt_tokens=10, completion_tokens=5)
+        )
         ep.close("t1")
         await hook.after_episode(_make_state(), ep)
         hook._persistence.save_episode.assert_called_once()  # type: ignore[attr-defined]
