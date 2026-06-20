@@ -260,7 +260,7 @@ async def fork_session(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/validate")
+@router.post("/validate", response_model=None)
 async def validate_session(
     request: Request,
     _auth: Auth,
