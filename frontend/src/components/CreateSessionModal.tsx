@@ -2,42 +2,45 @@ import { useState } from "react";
 import { ApiError } from "../api/client";
 
 const EXAMPLE_YAML = `session_id: my-first-session
-provider: gemini
-model: gemini-2.0-flash
-episodes: 3
+config:
+  default_provider: gemini
+  default_model: gemini-2.0-flash
+  max_episodes: 3
 
 parties:
   - id: alice
     kind: person
     name: Alice
-    description: A curious scientist
-    goals:
-      - Understand the new discovery
-    traits:
-      - analytical
-      - open-minded
+    persona:
+      description: A curious scientist
+      goals:
+        - Understand the new discovery
+      traits:
+        - analytical
+        - open-minded
 
   - id: bob
     kind: person
     name: Bob
-    description: A sceptical engineer
-    goals:
-      - Challenge assumptions
-    traits:
-      - pragmatic
-      - detail-oriented
+    persona:
+      description: A sceptical engineer
+      goals:
+        - Challenge assumptions
+      traits:
+        - pragmatic
+        - detail-oriented
 
-environment:
-  id: lab
-  name: Research Lab
-  setting: A modern laboratory in the evening
-  facts:
-    - The new experiment results are on the whiteboard
-  initial_state:
-    env.tension_level: low
-    env.time_of_day: evening
+  - id: lab
+    kind: environment
+    name: Research Lab
+    persona:
+      description: A modern laboratory in the evening
+      knowledge:
+        - The new experiment results are on the whiteboard
+    state:
+      env.tension_level: low
+      env.time_of_day: evening
 `;
-
 interface Props {
   onClose: () => void;
   onCreate: (yaml: string) => Promise<void>;
