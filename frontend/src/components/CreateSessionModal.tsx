@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, validateSession } from "../api/client";
+import { ApiError, generateSession, validateSession } from "../api/client";
 
 const EXAMPLE_YAML = `session_id: my-first-session
 config:
@@ -59,10 +59,34 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidationState>({ status: "idle" });
 
+  // Generate-from-prompt state
+  const [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
   // Reset validation result whenever YAML changes.
   function handleYamlChange(value: string) {
     setYaml(value);
     if (validation.status !== "idle") setValidation({ status: "idle" });
+  }
+
+  async function handleGenerate() {
+    if (!prompt.trim()) return;
+    setGenerating(true);
+    setGenerateError(null);
+    setValidation({ status: "idle" });
+    try {
+      const result = await generateSession(prompt.trim());
+      setYaml(result.yaml);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setGenerateError(`Generation failed (${e.status}): ${e.message}`);
+      } else {
+        setGenerateError(String(e));
+      }
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function handleValidate() {
@@ -113,9 +137,38 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
         </div>
 
         <div className="flex-1 overflow-auto p-6">
+          {/* Generate from prompt */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Generate from prompt
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !generating && void handleGenerate()}
+                placeholder="e.g. a tense salary negotiation between an employee and their manager"
+                className="flex-1 bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <button
+                disabled={generating || !prompt.trim()}
+                onClick={() => void handleGenerate()}
+                className="px-4 py-2 text-sm rounded bg-purple-700 hover:bg-purple-600 font-medium disabled:opacity-40 whitespace-nowrap"
+              >
+                {generating ? "Generating…" : "Generate"}
+              </button>
+            </div>
+            {generateError && (
+              <p className="mt-1 text-xs text-red-400">{generateError}</p>
+            )}
+          </div>
+
+          <div className="border-t border-gray-800 mb-4" />
+
           <p className="text-sm text-gray-400 mb-3">
-            Paste or edit a YAML scenario. The session is created immediately
-            and simulation starts when you press{" "}
+            Or paste / edit a YAML scenario directly. The session is created
+            immediately and simulation starts when you press{" "}
             <span className="text-blue-400">Run</span> in the session view.
           </p>
 
@@ -150,7 +203,7 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
           <textarea
             value={yaml}
             onChange={(e) => handleYamlChange(e.target.value)}
-            rows={24}
+            rows={20}
             spellCheck={false}
             className="w-full bg-gray-950 border border-gray-700 rounded font-mono text-xs text-green-300 p-3 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
           />

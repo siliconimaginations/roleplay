@@ -173,6 +173,23 @@ uv run roleplay validate my_scenario.yaml
 #   • parties[0].persona.description: required field missing
 ```
 
+### `roleplay generate <prompt>`
+
+Generate a complete YAML scenario from a natural-language prompt using an AI provider. The output is valid YAML ready to pass to `roleplay run` or `roleplay validate`.
+
+```bash
+# Print generated YAML to stdout
+uv run roleplay generate "a tense salary negotiation between an employee and their manager"
+
+# Save directly to a file
+uv run roleplay generate "two rival chefs compete in a blind taste test" -o scenarios/chefs.yaml
+
+# Use a specific provider
+uv run roleplay generate "cold war spy exchange at a border crossing" --provider claude -o scenarios/spy.yaml
+```
+
+The command uses the `gemini` provider by default. Set `GEMINI_API_KEY` (or `CLAUDE_API_KEY` for `--provider claude`) in your environment before running.
+
 ### `roleplay delete <session_id>`
 
 Permanently delete a session and all its data.
@@ -357,6 +374,7 @@ docker compose up
 | **Sessions list** | See all sessions, their status and episode count; refresh auto-polls every 5 s |
 | **Create session** | Paste or edit a YAML scenario and submit — session is created immediately |
 | **Live stream** | Watch turns stream in real time via WebSocket; colour-coded per party |
+| **Generate from prompt** | Describe a scenario in plain English — the AI generates a complete valid YAML and populates the editor |
 | **Validate** | Check a YAML scenario for errors before creating a session — shows a list of actionable errors in amber or a green "valid" confirmation |
 | **Summary / Detail toggle** | Switch between a compact one-line-per-episode summary view and the full turn-by-turn dialog (with AI-generated summary shown below each episode) |
 | **Run / Pause** | Start N episodes or pause mid-run from the browser |
@@ -397,6 +415,7 @@ Omit the env var entirely for unauthenticated dev mode.
 | `DELETE` | `/sessions/{id}` | Delete a session |
 | `POST` | `/sessions/{id}/fork` | Fork session at current state |
 | `POST` | `/sessions/validate` | Validate YAML without creating a session |
+| `POST` | `/sessions/generate` | Generate a YAML scenario from a natural-language prompt |
 | `POST` | `/sessions/{id}/run?episodes=N` | Run N episodes (background) |
 | `GET` | `/sessions/{id}/status` | Get run status |
 | `POST` | `/sessions/{id}/pause` | Request pause after current turn |

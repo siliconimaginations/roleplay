@@ -751,6 +751,57 @@ async def _delete_cmd(session_id: str, db: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Generate command
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def generate(
+    prompt: Annotated[str, typer.Argument(help="Natural-language description of the scenario")],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Write YAML to this file instead of stdout"),
+    ] = None,
+    provider: Annotated[
+        str,
+        typer.Option("--provider", "-p", help="Provider to use: gemini | claude | mock"),
+    ] = "gemini",
+) -> None:
+    """Generate a YAML scenario file from a natural-language prompt."""
+    import asyncio
+
+    from roleplay.api.runner import _build_registry
+    from roleplay.generate import generate_yaml_scenario
+    from roleplay.providers.base import ProviderError
+
+    registry = _build_registry()
+    if provider not in registry:
+        available = registry.names()
+        typer.echo(
+            f"Error: provider {provider!r} not available. Available: {available}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    prov = registry.get(provider)
+
+    try:
+        yaml_text = asyncio.run(generate_yaml_scenario(prompt, prov))
+    except ProviderError as exc:
+        typer.echo(f"✗ Provider error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        typer.echo(f"✗ Generation failed: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    if output is not None:
+        output.write_text(yaml_text, encoding="utf-8")
+        typer.echo(f"✓ Scenario written to {output}")
+    else:
+        typer.echo(yaml_text)
+
+
+# ---------------------------------------------------------------------------
 # roleplay validate
 # ---------------------------------------------------------------------------
 
