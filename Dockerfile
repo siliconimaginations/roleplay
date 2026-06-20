@@ -39,7 +39,7 @@ WORKDIR /home/roleplay/app
 COPY --from=builder /app/.venv /app/.venv
 
 # Copy the installed package source
-COPY --from=builder /app/src ./src
+COPY --from=builder /app/src /app/src
 
 # Copy the compiled frontend assets
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
