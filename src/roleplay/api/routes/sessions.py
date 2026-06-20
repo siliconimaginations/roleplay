@@ -252,3 +252,43 @@ async def fork_session(
         episode_count=0,
         status="idle",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /sessions/{session_id}/history
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/history")
+async def get_session_history(
+    session_id: str,
+    request: Request,
+    _auth: Auth,
+) -> list[dict[str, object]]:
+    """Return completed episodes and their turns for replay in the UI."""
+    from roleplay.persistence import SessionNotFoundError
+
+    layer = _layer(request)
+    try:
+        history = await layer.load_history(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
+
+    result = []
+    for ep in history.completed_episodes():
+        result.append(
+            {
+                "episode": ep.index,
+                "done": True,
+                "turns": [
+                    {
+                        "episode": ep.index,
+                        "party_id": t.party_id,
+                        "output": t.output,
+                        "state_update_proposals": t.state_update_proposals,
+                    }
+                    for t in ep.turns
+                ],
+            }
+        )
+    return result

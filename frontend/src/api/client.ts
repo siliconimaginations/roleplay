@@ -87,3 +87,7 @@ export const injectEvent = (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+
+export async function getSessionHistory(sessionId: string): Promise<import("./types").HistoryEpisode[]> {
+  return request<import("./types").HistoryEpisode[]>(`/sessions/${sessionId}/history`);
+}

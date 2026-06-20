@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WsEvent, RunStatus, RunStatusResponse } from "../api/types";
 import { SimulationStream } from "../api/ws";
-import { runSession, pauseSession, injectEvent, getSessionStatus } from "../api/client";
+import { runSession, pauseSession, injectEvent, getSessionStatus, getSessionHistory } from "../api/client";
 
 interface TurnCard {
   episode: number;
@@ -54,6 +54,29 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
       })
       .catch(() => {});
   }, [sessionId, onStatusChange]);
+
+  // Load persisted history on mount so returning to a completed session shows past turns.
+  useEffect(() => {
+    getSessionHistory(sessionId)
+      .then((episodes) => {
+        if (episodes.length > 0) {
+          setGroups(
+            episodes.map((ep) => ({
+              episode: ep.episode,
+              done: ep.done,
+              turns: ep.turns.map((t) => ({
+                episode: t.episode,
+                party_id: t.party_id,
+                output: t.output,
+                proposals: t.state_update_proposals,
+              })),
+            })),
+          );
+        }
+      })
+      .catch(() => {});
+  }, [sessionId]);
+
 
   useEffect(() => {
     const stream = new SimulationStream(sessionId);

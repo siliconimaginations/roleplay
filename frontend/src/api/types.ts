@@ -74,3 +74,16 @@ export type WsEvent =
   | SimulationCompleteEvent
   | ErrorEvent
   | ConnectedEvent;
+
+export interface HistoryTurn {
+  episode: number;
+  party_id: string;
+  output: string;
+  state_update_proposals: Record<string, unknown>;
+}
+
+export interface HistoryEpisode {
+  episode: number;
+  done: boolean;
+  turns: HistoryTurn[];
+}
