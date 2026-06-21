@@ -242,7 +242,7 @@ uv run roleplay delete my-first-run --confirm
 ```yaml
 config:
   default_provider: gemini        # LLM provider: gemini | claude | mock
-  default_model: gemini-2.0-flash # Model override (provider default if omitted)
+  default_model: gemini-3.5-flash # Model override (provider default if omitted)
   max_episodes: 10                # Stop after this many episodes
   context_window_episodes: 5      # How many past episodes the LLM sees
   memory_max_entries: 100         # Max memory entries per party
