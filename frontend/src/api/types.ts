@@ -14,6 +14,8 @@ export interface SessionSummary {
   created_at: string;
   episode_count: number;
   status: RunStatus;
+  origin: string | null;
+  parent_session_id: string | null;
 }
 
 export interface SessionDetail {

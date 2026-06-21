@@ -65,6 +65,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   const [showYaml, setShowYaml] = useState(false);
   const [yamlContent, setYamlContent] = useState<string | null>(null);
   const [yamlLoading, setYamlLoading] = useState(false);
+  const [yamlCopied, setYamlCopied] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<SimulationStream | null>(null);
@@ -574,12 +575,28 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
               <span className="text-sm font-semibold text-gray-300">Scenario Config</span>
-              <button
-                onClick={() => setShowYaml(false)}
-                className="text-gray-500 hover:text-gray-300 text-lg leading-none"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={yamlLoading || !yamlContent}
+                  onClick={() => {
+                    if (yamlContent) {
+                      void navigator.clipboard.writeText(yamlContent).then(() => {
+                        setYamlCopied(true);
+                        setTimeout(() => setYamlCopied(false), 1500);
+                      });
+                    }
+                  }}
+                  className="px-2 py-0.5 text-xs rounded border border-gray-700 hover:bg-gray-800 disabled:opacity-40 text-gray-400"
+                >
+                  {yamlCopied ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  onClick={() => setShowYaml(false)}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
               {yamlLoading ? (

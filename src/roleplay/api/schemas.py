@@ -24,6 +24,8 @@ class SessionSummary(BaseModel):
     created_at: datetime
     episode_count: int
     status: Literal["idle", "running", "paused", "done", "error"]
+    origin: str | None = None  # None = original, 'fork', or 'derive'
+    parent_session_id: str | None = None
 
 
 class SessionDetail(BaseModel):
@@ -34,6 +36,36 @@ class SessionDetail(BaseModel):
     config: dict[str, Any]
     parties: list[PartySchema]
     environment: PartySchema | None
+
+
+# ---------------------------------------------------------------------------
+# Fork / Derive request schemas
+# ---------------------------------------------------------------------------
+
+
+class ForkRequest(BaseModel):
+    """Optional body for POST /sessions/{id}/fork."""
+
+    session_id: str | None = Field(
+        default=None,
+        description="Custom session ID for the fork. Auto-deduped if already taken.",
+    )
+
+
+class DeriveRequest(BaseModel):
+    """Body for POST /sessions/{id}/derive."""
+
+    session_id: str | None = Field(
+        default=None,
+        description="Custom session ID for the derived session. Auto-deduped if already taken.",
+    )
+    yaml: str | None = Field(
+        default=None,
+        description=(
+            "Full YAML scenario to use for the derived session. "
+            "If omitted, the source session's config is used unchanged."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

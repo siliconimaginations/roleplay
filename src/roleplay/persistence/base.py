@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -55,6 +55,7 @@ class SessionSummary:
     status: str
     started_at: datetime
     last_saved_at: datetime
+    origin: Literal["fork", "derive"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +72,24 @@ class PersistenceLayer(Protocol):  # pragma: no cover
 
     # ── Session lifecycle ────────────────────────────────────────────────────
 
-    async def create_session(self, state: SimulationState) -> None:
-        """Write the session row and all party rows. Idempotent."""
+    async def create_session(
+        self,
+        state: SimulationState,
+        *,
+        parent_id: str | None = None,
+        origin: Literal["fork", "derive"] | None = None,
+    ) -> None:
+        """Write the session row and all party rows. Idempotent.
+
+        Args:
+            state: The simulation state to persist.
+            parent_id: If set, record this as the source session ID (fork/derive lineage).
+            origin: One of ``'fork'`` or ``'derive'``; ``None`` for original sessions.
+        """
+        ...
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Return True if a session with this ID already exists."""
         ...
 
     async def save_state(self, state: SimulationState) -> None:

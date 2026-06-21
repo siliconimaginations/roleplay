@@ -90,8 +90,33 @@ export const validateSession = async (yaml: string): Promise<ValidationResult> =
 export const deleteSession = (id: string): Promise<void> =>
   apiFetch(`/sessions/${id}`, { method: "DELETE" });
 
-export const forkSession = (id: string): Promise<SessionSummary> =>
-  apiFetch(`/sessions/${id}/fork`, { method: "POST" });
+export const forkSession = (
+  id: string,
+  sessionId?: string,
+): Promise<SessionSummary> =>
+  apiFetch(`/sessions/${id}/fork`, {
+    method: "POST",
+    ...(sessionId
+      ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        }
+      : {}),
+  });
+
+export const deriveSession = (
+  id: string,
+  sessionId?: string,
+  yaml?: string,
+): Promise<SessionSummary> =>
+  apiFetch(`/sessions/${id}/derive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(yaml ? { yaml } : {}),
+    }),
+  });
 
 // Simulation control
 export const runSession = (
