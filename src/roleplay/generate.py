@@ -307,8 +307,7 @@ async def generate_yaml_scenario(
             sem = validate_scenario(tmp_path)
             tmp_path.unlink(missing_ok=True)
             if sem.errors:
-                error_text = "; ".join(f"{e.field}: {e.message}" for e in sem.errors)
-                raise ValidationError(error_text)
+                raise ValidationError([f"{e.field}: {e.message}" for e in sem.errors])
             break  # valid — no more cycles needed
         except ValidationError as exc:
             tmp_path.unlink(missing_ok=True)
