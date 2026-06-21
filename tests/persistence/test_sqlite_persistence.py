@@ -717,3 +717,45 @@ class TestCreateSessionOrigin:
             assert by_id["fork-dst"].parent_session_id == "fork-src"
         finally:
             await layer.close()
+
+
+# ---------------------------------------------------------------------------
+# Context manager + _db() guard + _check_size
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSqlitePersistenceContextManager:
+    """Cover __aenter__/__aexit__ and _db() guard."""
+
+    async def test_async_context_manager_opens_and_closes(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "ctx.db")
+        async with SqlitePersistenceLayer(db_path) as layer:
+            assert await layer.session_exists("x") is False
+
+    async def test_db_raises_if_not_open(self) -> None:
+        from roleplay.persistence import PersistenceError
+
+        layer = SqlitePersistenceLayer("/tmp/never-opened-guard.db")
+        with pytest.raises(PersistenceError, match="not open"):
+            layer._db()
+
+    async def test_check_size_logs_warning_when_over_limit(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        db_path = str(tmp_path / "bigcheck.db")
+        # max_db_size_mb=0 → any non-zero size will trigger warning
+        layer = SqlitePersistenceLayer(db_path, max_db_size_mb=0)
+        await layer.open()
+        try:
+            state = _make_state("s1")
+            await layer.create_session(state)
+            with caplog.at_level(logging.WARNING, logger="roleplay.persistence.sqlite"):
+                layer._check_size()
+            assert any(
+                "size" in r.message.lower() or "mb" in r.message.lower() for r in caplog.records
+            )
+        finally:
+            await layer.close()
