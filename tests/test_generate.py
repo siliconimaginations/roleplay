@@ -90,9 +90,7 @@ config:
         from roleplay.providers.base import CompletionResponse
 
         p = MagicMock()
-        p.complete = AsyncMock(
-            side_effect=[CompletionResponse(text=t) for t in texts]
-        )
+        p.complete = AsyncMock(side_effect=[CompletionResponse(text=t) for t in texts])
         return p
 
     @pytest.mark.asyncio
@@ -104,7 +102,11 @@ config:
         assert provider.complete.call_count == 2
         # The correction prompt must mention the deprecated model error
         correction_prompt = provider.complete.call_args_list[1][0][0].prompt
-        assert "gemini-1.5-pro" in correction_prompt or "deprecated" in correction_prompt.lower() or "shut down" in correction_prompt.lower()
+        assert (
+            "gemini-1.5-pro" in correction_prompt
+            or "deprecated" in correction_prompt.lower()
+            or "shut down" in correction_prompt.lower()
+        )
         # Final result is the fixed YAML
         assert "gemini-2.5-flash" in result
 
