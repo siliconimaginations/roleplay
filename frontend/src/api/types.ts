@@ -32,6 +32,8 @@ export interface RunStatusResponse {
   episodes_completed: number;
   episodes_requested: number;
   error: string | null;
+  goal_achieved: boolean;
+  goal_status: string;
 }
 
 // WebSocket event types

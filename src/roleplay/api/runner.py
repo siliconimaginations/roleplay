@@ -153,7 +153,58 @@ class ApiObserverHook:
             {"type": "episode_end", "episode": max(ep_index, 0), "summary": summary}
         )
         self._runner.episodes_completed += 1
+
+        # Check goal progress after each episode (if a goal is defined).
+        if state.config.goal and ep.turns:
+            goal_status, met = await self._check_goal_progress(state, ep)
+            if met:
+                self._runner.goal_achieved = True
+                self._runner.goal_status = goal_status
+                await self._runner._broadcast({"type": "goal_achieved", "status": goal_status})
+                return ObserverDirective.halt(f"Goal achieved: {goal_status}")
+
         return ObserverDirective.continue_()
+
+    async def _check_goal_progress(
+        self, state: SimulationState, episode: object
+    ) -> tuple[str, bool]:
+        """Ask the LLM whether the simulation goal has been met.
+
+        Returns ``(one-sentence status, met)`` where ``met`` is True when the
+        LLM responds with a line starting "GOAL MET:".
+        """
+        # Use duck-typing: anything with a .turns attribute is valid.
+        if not hasattr(episode, "turns"):
+            return ("(no turns to evaluate)", False)
+        ep = episode
+        dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+        try:
+            from roleplay.providers.base import CompletionRequest
+
+            resp = await self._provider.complete(
+                CompletionRequest(
+                    prompt=(
+                        f"Simulation goal: {state.config.goal}\n\n"
+                        "Latest episode dialog:\n" + dialog_text + "\n\n"
+                        "Has the goal been fully achieved based on the dialog above? "
+                        "Reply with exactly one of:\n"
+                        "GOAL MET: <one sentence explaining how it was achieved>\n"
+                        "GOAL NOT MET: <one sentence on what still needs to happen>"
+                    ),
+                    max_output_tokens=120,
+                    temperature=0.1,
+                )
+            )
+            text = resp.text.strip()
+            met = text.upper().startswith("GOAL MET:")
+            return (text, met)
+        except Exception:
+            logger.warning(
+                "Goal check failed for session %s episode %d",
+                self._runner.session_id,
+                ep.index,
+            )
+            return ("(goal check unavailable)", False)
 
 
 class SessionRunner:
@@ -165,6 +216,8 @@ class SessionRunner:
         self.episodes_completed: int = 0
         self.episodes_requested: int = 0
         self.error: str | None = None
+        self.goal_achieved: bool = False
+        self.goal_status: str = ""
         self._task: asyncio.Task[None] | None = None
         self._pause_requested: bool = False
         self._pending_injection: str | None = None

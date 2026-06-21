@@ -187,3 +187,127 @@ class TestApiObserverHook:
         event = q.get_nowait()
         assert event["type"] == "episode_end"
         assert "summary" in event
+
+    # ------------------------------------------------------------------
+    # Goal-achievement tests
+    # ------------------------------------------------------------------
+
+    def _make_provider_with_goal_response(self, response_text: str) -> MagicMock:
+        """Provider whose .complete() returns a fixed goal-check string."""
+        provider = MagicMock()
+        resp = MagicMock()
+        resp.text = response_text
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+        return provider
+
+    def _make_episode_with_turns(self) -> MagicMock:
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "We have reached full agreement on all terms."
+        ep.turns = [turn]
+        ep.index = 0
+        return ep
+
+    async def test_goal_met_halts_and_broadcasts(self) -> None:
+        """When LLM says GOAL MET, runner halts and emits goal_achieved event."""
+        provider = self._make_provider_with_goal_response(
+            "GOAL MET: Alice and Bob reached full agreement."
+        )
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = "Reach a trade agreement"
+        state.history.completed_episodes.return_value = []
+        q = runner.subscribe()
+
+        ep = self._make_episode_with_turns()
+        directive = await hook.after_episode(state, ep)
+
+        assert directive.is_halt
+        assert runner.goal_achieved is True
+        assert runner.goal_status.startswith("GOAL MET:")
+
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+        event_types = [e["type"] for e in events]
+        assert "goal_achieved" in event_types
+        goal_event = next(e for e in events if e["type"] == "goal_achieved")
+        assert "GOAL MET" in goal_event["status"]
+
+    async def test_goal_not_met_continues(self) -> None:
+        """When LLM says GOAL NOT MET, simulation continues normally."""
+        provider = self._make_provider_with_goal_response(
+            "GOAL NOT MET: Parties haven't agreed on pricing yet."
+        )
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = "Reach a trade agreement"
+        state.history.completed_episodes.return_value = []
+
+        ep = self._make_episode_with_turns()
+        directive = await hook.after_episode(state, ep)
+
+        assert not directive.is_halt
+        assert runner.goal_achieved is False
+
+    async def test_no_goal_skips_check(self) -> None:
+        """When config has no goal, goal check is skipped entirely."""
+        provider = self._make_provider_with_goal_response("GOAL MET: irrelevant")
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""  # no goal
+        state.history.completed_episodes.return_value = []
+
+        ep = self._make_episode_with_turns()
+        directive = await hook.after_episode(state, ep)
+
+        assert not directive.is_halt
+        assert runner.goal_achieved is False
+
+    async def test_goal_check_empty_turns_skips(self) -> None:
+        """When episode has no turns, goal check is skipped."""
+        called = []
+
+        provider = MagicMock()
+
+        async def _complete(req: object) -> MagicMock:
+            called.append(True)
+            resp = MagicMock()
+            resp.text = "GOAL MET: x"
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = "Reach agreement"
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        ep.turns = []  # empty
+        ep.index = 0
+        directive = await hook.after_episode(state, ep)
+
+        assert not directive.is_halt
+        assert runner.goal_achieved is False
+        # complete() should not have been called for goal checking
+        # (it may have been called for summary — we just care goal didn't fire)
+
+    async def test_goal_achieved_fields_on_runner(self) -> None:
+        """SessionRunner starts with goal_achieved=False, goal_status=''."""
+        runner = SessionRunner("new-session")
+        assert runner.goal_achieved is False
+        assert runner.goal_status == ""
