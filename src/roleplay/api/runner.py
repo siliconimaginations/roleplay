@@ -130,7 +130,6 @@ class ApiObserverHook:
                             " no preamble, no incomplete sentences.\n\n"
                             "Dialog:\n" + dialog_text + "\n\nSummary:"
                         ),
-                        max_output_tokens=600,
                     )
                 )
                 raw = resp.text.strip()
