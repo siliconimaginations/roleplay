@@ -294,6 +294,26 @@ parties:
         assert r.status_code == 200
         assert r.json() == []
 
+    @pytest.mark.asyncio
+    async def test_deprecated_model_returns_error(self, client: AsyncClient) -> None:
+        """config.default_model set to a deprecated Gemini model must fail validation."""
+        yaml_deprecated = b"""session_id: deprecated-model-test
+config:
+  default_provider: gemini
+  default_model: gemini-1.5-flash
+parties:
+  - id: alice
+    kind: person
+    name: Alice
+    persona:
+      description: A person.
+"""
+        r = await client.post("/sessions/validate", content=yaml_deprecated)
+        assert r.status_code == 422
+        body = r.json()
+        assert body["valid"] is False
+        assert any("gemini-1.5-flash" in e for e in body["errors"])
+
 
 class TestExportSession:
     @pytest.mark.asyncio
