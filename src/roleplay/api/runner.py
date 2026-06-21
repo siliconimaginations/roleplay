@@ -122,22 +122,22 @@ class ApiObserverHook:
                 resp = await self._provider.complete(
                     CompletionRequest(
                         prompt=(
-                            "Summarize the roleplay scene below in 1-2 complete sentences. "
-                            'Start directly with the subject (e.g. "Alice and Bob..."). '
-                            "Describe what happened, any decisions reached, and key dynamics. "
-                            "Be specific. End every sentence with a full stop. "
-                            "Output only the summary — no bullet points, no headers, "
-                            "no preamble, no incomplete sentences.\n\n"
-                            "Scene transcript:\n" + dialog_text
+                            "You are summarizing a roleplay scene. "
+                            "Write 1-2 complete sentences describing what happened, "
+                            "any decisions reached, and key dynamics. "
+                            "Be specific. Always end with a full stop. "
+                            "Output only the summary — no bullet points, no headers,"
+                            " no preamble, no incomplete sentences.\n\n"
+                            "Dialog:\n" + dialog_text + "\n\nSummary:"
                         ),
                         max_output_tokens=400,
                     )
                 )
                 raw = resp.text.strip()
-                # Drop obvious fragments:
-                # - starts with lowercase  → continuation artifact
-                # - doesn't end with sentence-ending punctuation → truncated
-                # Both produce meaningless half-sentences; discard rather than show.
+                # Drop obvious fragments — a summary starting with lowercase is a
+                # continuation artefact; one without terminal punctuation is truncated.
+                # Both are meaningless; silently discard so the UI shows nothing rather
+                # than a confusing half-sentence.
                 summary = raw if raw and raw[0].isupper() and raw[-1] in {".", "!", "?"} else ""
             except Exception:
                 logger.warning(

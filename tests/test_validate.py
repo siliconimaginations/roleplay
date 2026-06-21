@@ -844,3 +844,79 @@ class TestValidateCoverageGaps:
         finally:
             sys.argv = old_argv
         assert exc_info.value.code == 0
+
+
+class TestModelValidation:
+    """Tests for _check_model and its integration with validate_scenario."""
+
+    MINIMAL_YAML = (
+        "session_id: test\n"
+        "config:\n"
+        "  default_provider: {provider}\n"
+        "  default_model: {model}\n"
+        "  max_episodes: 1\n"
+        "parties:\n"
+        "  - id: alice\n    kind: person\n    name: Alice\n"
+        "  - id: world\n    kind: environment\n    name: World\n"
+        "    persona:\n      description: A place\n"
+    )
+
+    def test_deprecated_gemini_model_is_error(self, tmp_path: Path) -> None:
+        """gemini-1.5-pro is shut down and must produce a validation error."""
+        f = tmp_path / "s.yaml"
+        f.write_text(self.MINIMAL_YAML.format(provider="gemini", model="gemini-1.5-pro"))
+        result = validate_scenario(f)
+        assert not result.valid
+        assert any("shut down" in e.message for e in result.errors)
+        assert any(e.field == "config.default_model" for e in result.errors)
+
+    def test_deprecated_gemini_2_0_flash_is_error(self, tmp_path: Path) -> None:
+        """gemini-2.0-flash is shut down and must produce a validation error."""
+        f = tmp_path / "s.yaml"
+        f.write_text(self.MINIMAL_YAML.format(provider="gemini", model="gemini-2.0-flash"))
+        result = validate_scenario(f)
+        assert not result.valid
+        assert any("shut down" in e.message for e in result.errors)
+
+    def test_known_current_model_passes(self, tmp_path: Path) -> None:
+        """A known-current model should produce no errors or warnings."""
+        f = tmp_path / "s.yaml"
+        f.write_text(self.MINIMAL_YAML.format(provider="gemini", model="gemini-3.5-flash"))
+        result = validate_scenario(f)
+        assert result.valid
+        assert result.warnings == []
+
+    def test_unknown_model_is_warning_not_error(self, tmp_path: Path) -> None:
+        """An unrecognised (possibly new) model gets a warning, not an error."""
+        f = tmp_path / "s.yaml"
+        f.write_text(self.MINIMAL_YAML.format(provider="gemini", model="gemini-99-turbo"))
+        result = validate_scenario(f)
+        assert result.valid  # warning only, not error
+        assert any("not a recognised" in w for w in result.warnings)
+
+    def test_empty_model_no_error(self, tmp_path: Path) -> None:
+        """No default_model → uses provider defaults, always fine."""
+        from roleplay.validate import ValidationResult, _check_model
+
+        r = ValidationResult(path=Path("x.yaml"))
+        _check_model("", "gemini", "config.default_model", r)
+        assert not r.errors
+        assert not r.warnings
+
+    def test_deprecated_claude_model_is_error(self, tmp_path: Path) -> None:
+        """claude-2 is deprecated and must produce an error."""
+        from roleplay.validate import ValidationResult, _check_model
+
+        r = ValidationResult(path=Path("x.yaml"))
+        _check_model("claude-2", "claude", "config.default_model", r)
+        assert any("shut down" in e.message for e in r.errors)
+
+    def test_unknown_provider_no_crash(self) -> None:
+        """An entirely unknown provider should not crash _check_model."""
+        from roleplay.validate import ValidationResult, _check_model
+
+        r = ValidationResult(path=Path("x.yaml"))
+        _check_model("some-model", "custom-provider", "config.default_model", r)
+        # No known set → no warning, no error (we can't judge what's valid)
+        assert not r.errors
+        assert not r.warnings
