@@ -405,7 +405,6 @@ async def validate_session(
     import tempfile
     from pathlib import Path
 
-    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
 
     body = await request.body()
     try:
