@@ -317,7 +317,7 @@ class TestApiObserverHook:
     # ------------------------------------------------------------------
 
     async def test_lowercase_fragment_discarded(self) -> None:
-        """Summary starting with lowercase is treated as a continuation artifact and discarded."""
+        """Summary starting with lowercase is discarded as a continuation artifact."""
         provider = MagicMock()
         resp = MagicMock()
         resp.text = "in a high-stakes negotiation to meet the deadline."
@@ -372,6 +372,36 @@ class TestApiObserverHook:
         await hook.after_episode(state, ep)
 
         assert ep.summary == "Alice and Bob reached a preliminary agreement on pricing."
+
+    async def test_capitalized_fragment_without_punctuation_discarded(self) -> None:
+        """Summary that starts uppercase but lacks sentence-ending punctuation is discarded."""
+        provider = MagicMock()
+        resp = MagicMock()
+        # Looks legitimate but is a truncated fragment — no full stop
+        resp.text = "In a high-stakes negotiation to meet Google Aggressive Q3"
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "We need to close this deal."
+        ep.turns = [turn]
+        ep.index = 0
+        await hook.after_episode(state, ep)
+
+        # Truncated fragment — no punctuation — should be discarded
+        assert ep.summary == ""
 
     async def test_long_dialog_truncated_in_prompt(self) -> None:
         """Dialog longer than 6000 chars is truncated before being sent to the LLM."""

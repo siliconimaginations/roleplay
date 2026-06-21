@@ -439,7 +439,10 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           <span className="text-green-400 text-base leading-tight">✓</span>
           <div>
             <span className="font-semibold">Goal achieved — </span>
-            <span>{goalStatus.replace(/^GOAL MET:\s*/i, "")}</span>
+            <span>{(() => {
+              const detail = goalStatus.replace(/^GOAL MET:\s*/i, "").trim();
+              return detail.split(/\s+/).length >= 3 ? detail : "The session goal has been met.";
+            })()}</span>
           </div>
         </div>
       )}
