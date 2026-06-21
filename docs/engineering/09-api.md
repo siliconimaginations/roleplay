@@ -140,6 +140,7 @@ Other event types: `"episode_start"`, `"episode_end"`, `"simulation_complete"`, 
 | `GET` | `/sessions/{session_id}/yaml` | ✓ | Return current session state as a YAML scenario document |
 | `GET` | `/sessions/{session_id}/export` | ✓ | Export full session state as JSON (parties, history, named environments) |
 | `POST` | `/sessions/validate` | ✓ | Validate a YAML scenario without creating a session |
+| `POST` | `/sessions/generate` | ✓ | Generate a YAML scenario from a natural-language prompt |
 
 `POST /sessions` body: raw YAML text (same format as `scenarios/example.yaml`).
 Response: `SessionSummary` with `201 Created`.
@@ -155,6 +156,12 @@ environment, config, and named environments.
 `POST /sessions/validate` body: raw YAML. Returns
 `{"valid": true}` or `{"valid": false, "errors": ["..."]}`. Does not persist
 anything.
+
+`POST /sessions/generate` body: plain-text natural-language description. Returns
+`{"yaml": "<generated YAML string>"}`. Optional query param `fix_cycles` (int,
+0-5, default 0): number of automatic validation-correction cycles — after each
+generation the YAML is validated, and if errors are found the LLM is re-prompted
+with the error list and asked to correct the output.
 
 ---
 

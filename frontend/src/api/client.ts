@@ -62,10 +62,12 @@ export interface ValidationResult {
 
 export interface GenerateResult { yaml: string; }
 
-export const generateSession = async (prompt: string): Promise<GenerateResult> => {
+export const generateSession = async (prompt: string, fixCycles = 0): Promise<GenerateResult> => {
   const headers: Record<string, string> = { "Content-Type": "text/plain" };
   if (_apiKey) headers["X-API-Key"] = _apiKey;
-  const res = await fetch("/sessions/generate", { method: "POST", headers, body: prompt });
+  const cycles = Math.max(0, Math.min(fixCycles, 5));
+  const url = cycles > 0 ? `/sessions/generate?fix_cycles=${cycles}` : "/sessions/generate";
+  const res = await fetch(url, { method: "POST", headers, body: prompt });
   if (res.ok) {
     return res.json() as Promise<GenerateResult>;
   }

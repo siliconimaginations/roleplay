@@ -282,6 +282,34 @@ Usage: roleplay forget SESSION_ID PARTY_ID ENTRY_ID [--db TEXT]
 Useful for scenario editing and selective amnesia injection without entering
 interactive mode.
 
+### `roleplay generate <prompt>`
+
+Generate a complete YAML scenario from a natural-language prompt using an LLM provider. The output is valid YAML ready for `roleplay run` or `roleplay validate`.
+
+```
+Usage: roleplay generate [OPTIONS] PROMPT
+
+Options:
+  --output / -o PATH   Write YAML to this file instead of stdout.
+  --provider / -p STR  Provider to use: gemini | claude | mock  (default: gemini)
+  --fix-cycles / -f N  Validation-correction cycles after generation (0-5, default 0)
+```
+
+```bash
+# Print to stdout
+uv run roleplay generate "a tense salary negotiation"
+
+# Save to file
+uv run roleplay generate "spy exchange at a border crossing" -o scenarios/spy.yaml
+
+# Auto-correct up to 3 times if the output has validation errors
+uv run roleplay generate "a peace summit" --fix-cycles 3 -o scenarios/summit.yaml
+```
+
+`--fix-cycles N` validates the generated YAML and, if errors are found, re-prompts the LLM with the error list and asks for a corrected version. Repeats up to N times or until the output is clean. Correction calls use temperature 0.2 for more deterministic output. Each cycle adds one LLM call.
+
+---
+
 ### `roleplay validate <scenario.yaml>`
 
 Validate a scenario file without creating a session. Exits 0 on success, 1 on any error.

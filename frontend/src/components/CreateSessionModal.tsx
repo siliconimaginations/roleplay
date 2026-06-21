@@ -61,6 +61,7 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
 
   // Generate-from-prompt state
   const [prompt, setPrompt] = useState("");
+  const [fixCycles, setFixCycles] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
 
@@ -76,7 +77,7 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
     setGenerateError(null);
     setValidation({ status: "idle" });
     try {
-      const result = await generateSession(prompt.trim());
+      const result = await generateSession(prompt.trim(), fixCycles);
       setYaml(result.yaml);
     } catch (e) {
       if (e instanceof ApiError) {
@@ -158,6 +159,18 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
               >
                 {generating ? "Generating…" : "Generate"}
               </button>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <label className="text-xs text-gray-400 whitespace-nowrap">Fix cycles (0-5):</label>
+              <input
+                type="number"
+                min={0}
+                max={5}
+                value={fixCycles}
+                onChange={(e) => setFixCycles(Math.max(0, Math.min(5, Number(e.target.value))))}
+                className="w-14 bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 text-center"
+              />
+              <span className="text-xs text-gray-500">Validate &amp; auto-correct after generation</span>
             </div>
             {generateError && (
               <p className="mt-1 text-xs text-red-400">{generateError}</p>

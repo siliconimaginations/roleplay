@@ -208,9 +208,14 @@ uv run roleplay generate "two rival chefs compete in a blind taste test" -o scen
 
 # Use a specific provider
 uv run roleplay generate "cold war spy exchange at a border crossing" --provider claude -o scenarios/spy.yaml
+
+# Auto-correct after generation: validate and re-prompt the LLM up to 3 times to fix errors
+uv run roleplay generate "a peace treaty negotiation" --fix-cycles 3 -o scenarios/treaty.yaml
 ```
 
 The command uses the `gemini` provider by default. Set `GEMINI_API_KEY` (or `CLAUDE_API_KEY` for `--provider claude`) in your environment before running.
+
+`--fix-cycles N` (0–5, default 0) runs automatic validation-correction after initial generation: if the YAML has errors the LLM is shown those errors and asked to correct them, repeating up to N times. Each correction cycle uses a lower temperature (0.2) for more deterministic output. This adds one LLM call per cycle.
 
 ### `roleplay delete <session_id>`
 
@@ -402,7 +407,7 @@ docker compose up
 | **Sessions list** | See all sessions, their status and episode count; refresh auto-polls every 5 s |
 | **Create session** | Paste or edit a YAML scenario and submit — session is created immediately |
 | **Live stream** | Watch turns stream in real time via WebSocket; colour-coded per party |
-| **Generate from prompt** | Describe a scenario in plain English — the AI generates a complete valid YAML and populates the editor |
+| **Generate from prompt** | Describe a scenario in plain English — the AI generates a complete valid YAML and populates the editor. Set **Fix cycles (0-5)** to automatically validate and re-prompt the LLM to correct any errors after generation |
 | **Validate** | Check a YAML scenario for errors before creating a session — shows a list of actionable errors in amber or a green "valid" confirmation |
 | **Summary / Detail toggle** | Switch between a compact one-line-per-episode summary view and the full turn-by-turn dialog (with AI-generated summary shown below each episode) |
 | **Run / Pause** | Start N episodes or pause mid-run from the browser |
