@@ -4,7 +4,7 @@ import { ApiError, generateSession, validateSession } from "../api/client";
 const EXAMPLE_YAML = `session_id: my-first-session
 config:
   default_provider: gemini
-  default_model: gemini-2.0-flash
+  default_model: gemini-3.5-flash
   max_episodes: 3
 
 parties:
