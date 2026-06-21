@@ -868,7 +868,7 @@ class TestModelValidation:
         result = validate_scenario(f)
         assert not result.valid
         assert any("shut down" in e.message for e in result.errors)
-        assert any("config.default_model" == e.field for e in result.errors)
+        assert any(e.field == "config.default_model" for e in result.errors)
 
     def test_deprecated_gemini_2_0_flash_is_error(self, tmp_path: Path) -> None:
         """gemini-2.0-flash is shut down and must produce a validation error."""
