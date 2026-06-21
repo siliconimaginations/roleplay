@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from roleplay.api.auth import require_api_key
-from roleplay.api.schemas import PartySchema, SessionDetail, SessionSummary
+from roleplay.api.schemas import (
+    DeriveRequest,
+    ForkRequest,
+    PartySchema,
+    SessionDetail,
+    SessionSummary,
+)
 from roleplay.persistence.base import SessionNotFoundError
 
 if TYPE_CHECKING:
@@ -35,6 +41,20 @@ def _session_status(session_id: str, runners: dict[str, Any]) -> RunStatusLitera
     if runner is None:
         return "idle"
     return cast("RunStatusLiteral", runner.status)
+
+
+async def _deduplicate_session_id(base_id: str, layer: PersistenceLayer) -> str:
+    """Return base_id if available, else base_id-1, base_id-2, … until a free slot is found."""
+    if not await layer.session_exists(base_id):
+        return base_id
+    for i in range(1, 1000):
+        candidate = f"{base_id}-{i}"
+        if not await layer.session_exists(candidate):
+            return candidate
+    # Extremely unlikely fallback
+    import uuid as _uuid
+
+    return f"{base_id}-{_uuid.uuid4().hex[:8]}"
 
 
 def _parties_from_state(
@@ -117,6 +137,9 @@ async def create_session(
     state = result.state
     layer = _layer(request)
 
+    # Deduplicate the session_id if a session with that ID already exists.
+    state.config.session_id = await _deduplicate_session_id(state.config.session_id, layer)
+
     try:
         await layer.create_session(state)
     except Exception as exc:
@@ -130,6 +153,8 @@ async def create_session(
         created_at=datetime.now(tz=UTC),
         episode_count=0,
         status="idle",
+        origin=None,
+        parent_session_id=None,
     )
 
 
@@ -150,6 +175,8 @@ async def list_sessions(request: Request, _auth: Auth) -> list[SessionSummary]:
             created_at=s.started_at,
             episode_count=s.episode_count,
             status=_session_status(s.session_id, runners),
+            origin=s.origin,
+            parent_session_id=s.parent_session_id,
         )
         for s in summaries
     ]
@@ -236,12 +263,26 @@ async def fork_session(
     session_id: str,
     request: Request,
     _auth: Auth,
+    body: ForkRequest | None = None,
 ) -> SessionSummary:
-    """Fork a session at its current state."""
+    """Fork a session at its current state.
+
+    An optional JSON body may specify ``session_id`` to give the fork a
+    human-readable name instead of a random UUID.  The ID is automatically
+    suffixed (-1, -2 …) if it is already in use.
+    """
     from datetime import UTC, datetime
 
+    if body is None:
+        body = ForkRequest()
     layer = _layer(request)
-    new_id = str(uuid.uuid4())
+    # If caller sends a JSON body with session_id, honour it (with dedup).
+    # FastAPI will parse it; if no body was sent ForkRequest() defaults are used.
+    if body.session_id:
+        new_id = await _deduplicate_session_id(body.session_id, layer)
+    else:
+        new_id = str(uuid.uuid4())
+
     try:
         await layer.fork(session_id, new_id)
     except SessionNotFoundError:
@@ -252,6 +293,96 @@ async def fork_session(
         created_at=datetime.now(tz=UTC),
         episode_count=0,
         status="idle",
+        origin="fork",
+        parent_session_id=session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /sessions/{session_id}/derive
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{session_id}/derive", status_code=status.HTTP_201_CREATED)
+async def derive_session(
+    session_id: str,
+    body: DeriveRequest,
+    request: Request,
+    _auth: Auth,
+) -> SessionSummary:
+    """Derive a new session from an existing one.
+
+    Unlike fork (which copies current run state), derive creates a **fresh**
+    session starting from the initial configuration.  The caller may:
+
+    * supply an optional ``session_id`` for the new session (auto-deduped);
+    * supply a full ``yaml`` override to modify any config fields before the
+      new session is created — useful for ablation studies.
+
+    If ``yaml`` is omitted the source session's stored config is used verbatim.
+    """
+    import tempfile
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
+
+    layer = _layer(request)
+
+    # Verify the source session exists and load its state (initial config).
+    try:
+        source_state = await layer.load_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
+
+    # Determine the new session_id (with dedup).
+    base_id = body.session_id or str(uuid.uuid4())
+    new_id = await _deduplicate_session_id(base_id, layer)
+
+    if body.yaml:
+        # Parse the caller-supplied YAML override.
+        with tempfile.NamedTemporaryFile(
+            suffix=".yaml", mode="w", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(body.yaml)
+            tmp_path = Path(tmp.name)
+        try:
+            result = load_yaml_scenario(tmp_path)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"errors": exc.errors},
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid YAML: {exc}",
+            ) from exc
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        new_state = result.state
+    else:
+        # Use the source session's initial config as-is.
+        new_state = source_state
+
+    # Patch the session_id in the new state.
+    new_state.config.session_id = new_id
+
+    try:
+        await layer.create_session(new_state, parent_id=session_id, origin="derive")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to persist derived session: {exc}",
+        ) from exc
+
+    return SessionSummary(
+        session_id=new_id,
+        created_at=datetime.now(tz=UTC),
+        episode_count=0,
+        status="idle",
+        origin="derive",
+        parent_session_id=session_id,
     )
 
 

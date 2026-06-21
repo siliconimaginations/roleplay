@@ -145,7 +145,13 @@ class SqlitePersistenceLayer:
 
     # ── Session lifecycle ────────────────────────────────────────────────────
 
-    async def create_session(self, state: SimulationState) -> None:
+    async def create_session(
+        self,
+        state: SimulationState,
+        *,
+        parent_id: str | None = None,
+        origin: str | None = None,
+    ) -> None:
         """Write the session row and all party rows. Idempotent."""
         db = self._db()
         now = _dt_to_str(__import__("datetime").datetime.now(__import__("datetime").UTC))
@@ -153,17 +159,18 @@ class SqlitePersistenceLayer:
             """
             INSERT OR IGNORE INTO sessions
               (session_id, parent_session_id, forked_at_episode,
-               config_json, started_at, last_saved_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+               config_json, started_at, last_saved_at, status, origin)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 state.config.session_id,
-                None,
+                parent_id,
                 None,
                 encode_config(state.config),
                 now,
                 now,
                 "running",
+                origin,
             ),
         )
         # Upsert all parties
@@ -225,6 +232,14 @@ class SqlitePersistenceLayer:
                     ),
                 )
         await db.commit()
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Return True if a session with this ID already exists."""
+        db = self._db()
+        row = await (
+            await db.execute("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,))
+        ).fetchone()
+        return row is not None
 
     async def save_state(self, state: SimulationState) -> None:
         """Persist new state_changes rows and update last_saved_at."""
@@ -388,7 +403,7 @@ class SqlitePersistenceLayer:
             await db.execute(
                 """
                 SELECT s.session_id, s.parent_session_id, s.forked_at_episode,
-                       s.status, s.started_at, s.last_saved_at,
+                       s.status, s.started_at, s.last_saved_at, s.origin,
                        COUNT(DISTINCT e.episode_id) AS episode_count,
                        COUNT(DISTINCT p.party_id) AS party_count
                 FROM sessions s
@@ -410,6 +425,7 @@ class SqlitePersistenceLayer:
                 status=r["status"],
                 started_at=_str_to_dt(r["started_at"]),
                 last_saved_at=_str_to_dt(r["last_saved_at"]),
+                origin=r["origin"],
             )
             for r in rows
         ]
@@ -703,8 +719,8 @@ class SqlitePersistenceLayer:
                 """
                 INSERT INTO sessions
                   (session_id, parent_session_id, forked_at_episode,
-                   config_json, started_at, last_saved_at, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                   config_json, started_at, last_saved_at, status, origin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_session_id,
@@ -715,6 +731,7 @@ class SqlitePersistenceLayer:
                     src_row["started_at"],
                     now,
                     src_row["status"],
+                    "fork",
                 ),
             )
 

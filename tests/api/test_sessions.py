@@ -654,3 +654,175 @@ class TestGetSessionHistory:
 
         r = await client.get("/sessions/missing/history")
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Deduplication tests
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIdDedup:
+    """Create → create again with same session_id → should get a suffixed ID."""
+
+    async def test_duplicate_session_id_gets_suffix(self, client: AsyncClient) -> None:
+        r1 = await client.post("/sessions", content=MINIMAL_YAML)
+        assert r1.status_code == 201
+        assert r1.json()["session_id"] == "test-session-001"
+
+        # Post again with same YAML (same session_id in config)
+        r2 = await client.post("/sessions", content=MINIMAL_YAML)
+        assert r2.status_code == 201
+        new_id = r2.json()["session_id"]
+        assert new_id == "test-session-001-1"
+
+    async def test_triple_duplicate_gets_incrementing_suffix(
+        self, client: AsyncClient
+    ) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        r2 = await client.post("/sessions", content=MINIMAL_YAML)
+        r3 = await client.post("/sessions", content=MINIMAL_YAML)
+        assert r2.json()["session_id"] == "test-session-001-1"
+        assert r3.json()["session_id"] == "test-session-001-2"
+
+
+# ---------------------------------------------------------------------------
+# Named fork tests
+# ---------------------------------------------------------------------------
+
+
+class TestNamedFork:
+    """Fork with a custom session_id."""
+
+    async def test_fork_with_name(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        resp = await client.post(
+            "/sessions/test-session-001/fork",
+            json={"session_id": "my-named-fork"},
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["session_id"] == "my-named-fork"
+        assert body["origin"] == "fork"
+        assert body["parent_session_id"] == "test-session-001"
+
+    async def test_fork_name_deduped_if_taken(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        r1 = await client.post(
+            "/sessions/test-session-001/fork",
+            json={"session_id": "fork-name"},
+        )
+        assert r1.json()["session_id"] == "fork-name"
+        # Fork again with the same name
+        r2 = await client.post(
+            "/sessions/test-session-001/fork",
+            json={"session_id": "fork-name"},
+        )
+        assert r2.json()["session_id"] == "fork-name-1"
+
+    async def test_fork_without_body_still_works(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=MINIMAL_YAML)
+        resp = await client.post("/sessions/test-session-001/fork")
+        assert resp.status_code == 201
+        # Should get a UUID (auto-generated)
+        body = resp.json()
+        assert body["session_id"] != "test-session-001"
+        assert body["origin"] == "fork"
+
+
+# ---------------------------------------------------------------------------
+# Derive tests
+# ---------------------------------------------------------------------------
+
+_DERIVE_YAML = """\
+session_id: "derive-source"
+config:
+  default_provider: mock
+parties:
+  - id: alice
+    kind: person
+    name: Alice
+    system_prompt: "You are Alice."
+  - id: room
+    kind: environment
+    name: Room
+    system_prompt: "A room."
+"""
+
+
+class TestDeriveSession:
+    """POST /sessions/{id}/derive"""
+
+    async def test_derive_returns_201(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        resp = await client.post(
+            "/sessions/derive-source/derive",
+            json={},
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["origin"] == "derive"
+        assert body["parent_session_id"] == "derive-source"
+        assert body["episode_count"] == 0
+        assert body["status"] == "idle"
+
+    async def test_derive_with_custom_name(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        resp = await client.post(
+            "/sessions/derive-source/derive",
+            json={"session_id": "my-ablation"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["session_id"] == "my-ablation"
+
+    async def test_derive_custom_name_deduped(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        r1 = await client.post(
+            "/sessions/derive-source/derive",
+            json={"session_id": "ablation"},
+        )
+        assert r1.json()["session_id"] == "ablation"
+        r2 = await client.post(
+            "/sessions/derive-source/derive",
+            json={"session_id": "ablation"},
+        )
+        assert r2.json()["session_id"] == "ablation-1"
+
+    async def test_derive_nonexistent_returns_404(self, client: AsyncClient) -> None:
+        resp = await client.post("/sessions/ghost/derive", json={})
+        assert resp.status_code == 404
+
+    async def test_derive_with_yaml_override(self, client: AsyncClient) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        # Supply a full YAML override
+        override = _DERIVE_YAML.replace("derive-source", "derived-override")
+        resp = await client.post(
+            "/sessions/derive-source/derive",
+            json={"yaml": override},
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["origin"] == "derive"
+
+    async def test_derive_with_invalid_yaml_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        resp = await client.post(
+            "/sessions/derive-source/derive",
+            json={"yaml": "not: valid: yaml: [[["},
+        )
+        assert resp.status_code == 422
+
+    async def test_derive_creates_new_session_in_list(
+        self, client: AsyncClient
+    ) -> None:
+        await client.post("/sessions", content=_DERIVE_YAML)
+        derive_resp = await client.post("/sessions/derive-source/derive", json={})
+        new_id = derive_resp.json()["session_id"]
+        list_resp = await client.get("/sessions")
+        ids = [s["session_id"] for s in list_resp.json()]
+        assert new_id in ids
+        # Origin should be visible in list
+        entry = next(s for s in list_resp.json() if s["session_id"] == new_id)
+        assert entry["origin"] == "derive"
+

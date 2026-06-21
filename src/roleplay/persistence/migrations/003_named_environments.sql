@@ -10,3 +10,5 @@ CREATE TABLE IF NOT EXISTS named_environments (
     state_json  TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (env_id, session_id)
 );
+
+INSERT INTO schema_version (version, applied_at) VALUES (3, datetime('now'));

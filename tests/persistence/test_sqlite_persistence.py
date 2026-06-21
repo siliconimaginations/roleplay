@@ -85,7 +85,7 @@ class TestMigrations:
     async def test_schema_version_set_to_1(self, layer: SqlitePersistenceLayer) -> None:
         db = layer._db()
         row = await (await db.execute("SELECT MAX(version) FROM schema_version")).fetchone()
-        assert row[0] == 2  # migrations 001 + 002
+        assert row[0] == 4  # migrations 001-004
 
     async def test_migration_not_reapplied_on_second_open(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
@@ -96,7 +96,7 @@ class TestMigrations:
         l2 = SqlitePersistenceLayer(db_path)
         await l2.open()
         row = await (await l2._db().execute("SELECT COUNT(*) FROM schema_version")).fetchone()
-        assert row[0] == 2  # one schema_version row per migration (001 + 002)
+        assert row[0] == 4  # one schema_version row per migration (001-004)
         await l2.close()
 
 
@@ -633,3 +633,87 @@ class TestPersistenceErrors:
         from roleplay.persistence.base import CorruptedSessionError, PersistenceError
 
         assert isinstance(CorruptedSessionError("x"), PersistenceError)
+
+
+# ---------------------------------------------------------------------------
+# session_exists
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSessionExists:
+    """SqlitePersistenceLayer.session_exists() — basic contract."""
+
+    async def test_exists_false_before_create(self, tmp_path: object) -> None:
+        import tempfile
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+        try:
+            assert await layer.session_exists("ghost") is False
+        finally:
+            await layer.close()
+
+    async def test_exists_true_after_create(self, tmp_path: object) -> None:
+        import tempfile
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+        try:
+            state = _make_state("exists-check")
+            await layer.create_session(state)
+            assert await layer.session_exists("exists-check") is True
+            assert await layer.session_exists("other-id") is False
+        finally:
+            await layer.close()
+
+
+# ---------------------------------------------------------------------------
+# create_session with origin / parent_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCreateSessionOrigin:
+    """create_session propagates origin and parent_id into the DB."""
+
+    async def test_derive_origin_in_list(self, tmp_path: object) -> None:
+        import tempfile
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+        try:
+            src = _make_state("src-session")
+            await layer.create_session(src)
+
+            derived = _make_state("derived-session")
+            await layer.create_session(derived, parent_id="src-session", origin="derive")
+
+            summaries = await layer.list_sessions()
+            by_id = {s.session_id: s for s in summaries}
+            assert by_id["derived-session"].origin == "derive"
+            assert by_id["derived-session"].parent_session_id == "src-session"
+            assert by_id["src-session"].origin is None
+        finally:
+            await layer.close()
+
+    async def test_fork_origin_in_list(self, tmp_path: object) -> None:
+        import tempfile
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+        try:
+            src = _make_state("fork-src")
+            await layer.create_session(src)
+            await layer.fork("fork-src", "fork-dst")
+
+            summaries = await layer.list_sessions()
+            by_id = {s.session_id: s for s in summaries}
+            assert by_id["fork-dst"].origin == "fork"
+            assert by_id["fork-dst"].parent_session_id == "fork-src"
+        finally:
+            await layer.close()
