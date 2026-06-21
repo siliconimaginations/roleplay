@@ -134,11 +134,11 @@ class ApiObserverHook:
                     )
                 )
                 raw = resp.text.strip()
-                # Drop obvious fragments — a summary starting with lowercase is a
-                # continuation artefact; one without terminal punctuation is truncated.
-                # Both are meaningless; silently discard so the UI shows nothing rather
-                # than a confusing half-sentence.
-                summary = raw if raw and raw[0].isupper() and raw[-1] in {".", "!", "?"} else ""
+                # Drop obvious continuation artefacts: a summary starting with
+                # lowercase is a prompt-completion leak. Terminal-punctuation
+                # check removed — the 6000-char truncation gives the model
+                # enough headroom to finish its output without being cut short.
+                summary = raw if raw and raw[0].isupper() else ""
             except Exception:
                 logger.warning(
                     "Summary generation failed for episode %d of session %s",
