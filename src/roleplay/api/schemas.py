@@ -47,6 +47,8 @@ class RunStatus(BaseModel):
     episodes_completed: int
     episodes_requested: int
     error: str | None = None
+    goal_achieved: bool = False
+    goal_status: str = ""
 
 
 class InjectRequest(BaseModel):

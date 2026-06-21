@@ -934,3 +934,192 @@ class TestRunCommandGenericLoadError:
         assert doc["environment"]["initial_state"]["lit"] == "yes"
         hallway = next(e for e in doc["environments"] if e["id"] == "hallway")
         assert hallway["state"]["open"] == "true"
+
+
+# ---------------------------------------------------------------------------
+# _cli_check_goal + CliObserverHook goal tests
+# ---------------------------------------------------------------------------
+
+
+def _make_goal_provider(response_text: str) -> MagicMock:
+    """Provider whose .complete() returns the given text."""
+    provider = MagicMock()
+    resp = MagicMock()
+    resp.text = response_text
+
+    async def _complete(req: object) -> MagicMock:
+        return resp
+
+    provider.complete = _complete
+    return provider
+
+
+def _make_hook_with_provider(provider: object) -> CliObserverHook:
+    layer = AsyncMock()
+    layer.save_episode = AsyncMock()
+    layer.save_state = AsyncMock()
+    layer.checkpoint = AsyncMock()
+    return CliObserverHook(
+        StreamPrinter(),
+        interactive=False,
+        max_episodes=5,
+        persistence=layer,
+        session_id="goal-session",
+        provider=provider,
+    )
+
+
+class TestCliCheckGoal:
+    @pytest.mark.asyncio
+    async def test_goal_met_returns_true(self) -> None:
+        from roleplay.cli import _cli_check_goal
+
+        provider = _make_goal_provider("GOAL MET: Both parties signed the agreement.")
+        state = _make_state()
+        state.config.goal = "Sign a trade deal"
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "I agree to all terms."
+        ep.turns = [turn]
+
+        status, met = await _cli_check_goal(state, ep, provider)
+        assert met is True
+        assert "GOAL MET" in status
+
+    @pytest.mark.asyncio
+    async def test_goal_not_met_returns_false(self) -> None:
+        from roleplay.cli import _cli_check_goal
+
+        provider = _make_goal_provider("GOAL NOT MET: Pricing still unresolved.")
+        state = _make_state()
+        state.config.goal = "Sign a trade deal"
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "bob"
+        turn.output = "We need to discuss pricing first."
+        ep.turns = [turn]
+
+        _status, met = await _cli_check_goal(state, ep, provider)
+        assert met is False
+
+    @pytest.mark.asyncio
+    async def test_empty_turns_returns_false_without_calling_llm(self) -> None:
+        from roleplay.cli import _cli_check_goal
+
+        called = []
+
+        provider = MagicMock()
+
+        async def _complete(req: object) -> MagicMock:
+            called.append(True)
+            r = MagicMock()
+            r.text = "GOAL MET: x"
+            return r
+
+        provider.complete = _complete
+        state = _make_state()
+        state.config.goal = "Sign a trade deal"
+
+        ep = MagicMock()
+        ep.turns = []
+
+        _status, met = await _cli_check_goal(state, ep, provider)
+        assert met is False
+        assert len(called) == 0
+
+
+class TestCliObserverHookGoal:
+    @pytest.mark.asyncio
+    async def test_goal_met_halts_and_prints(self) -> None:
+        provider = _make_goal_provider("GOAL MET: Agreement reached.")
+        hook = _make_hook_with_provider(provider)
+
+        state = _make_state()
+        state.config.goal = "Reach agreement"
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "Deal confirmed."
+        turn.prompt_tokens = 0
+        turn.completion_tokens = 0
+        ep.turns = [turn]
+        ep.index = 0
+        ep.simulated_time_end = ""
+
+        directive = await hook.after_episode(state, ep)
+        assert directive.is_halt
+        assert hook.goal_achieved is True
+        assert "GOAL MET" in hook.goal_status
+
+    @pytest.mark.asyncio
+    async def test_goal_not_met_continues(self) -> None:
+        provider = _make_goal_provider("GOAL NOT MET: Still in progress.")
+        hook = _make_hook_with_provider(provider)
+
+        state = _make_state()
+        state.config.goal = "Reach agreement"
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "Not done yet."
+        turn.prompt_tokens = 0
+        turn.completion_tokens = 0
+        ep.turns = [turn]
+        ep.index = 0
+        ep.simulated_time_end = ""
+
+        directive = await hook.after_episode(state, ep)
+        assert not directive.is_halt
+        assert hook.goal_achieved is False
+
+    @pytest.mark.asyncio
+    async def test_no_goal_skips_check(self) -> None:
+        provider = _make_goal_provider("GOAL MET: irrelevant")
+        hook = _make_hook_with_provider(provider)
+
+        state = _make_state()
+        state.config.goal = ""  # no goal set
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "Something happened."
+        turn.prompt_tokens = 0
+        turn.completion_tokens = 0
+        ep.turns = [turn]
+        ep.index = 0
+        ep.simulated_time_end = ""
+
+        directive = await hook.after_episode(state, ep)
+        assert not directive.is_halt
+        assert hook.goal_achieved is False
+
+    @pytest.mark.asyncio
+    async def test_no_provider_skips_check(self) -> None:
+        """When hook has no provider, goal check is gracefully skipped."""
+        hook = _make_hook(max_episodes=5)  # no provider
+
+        state = _make_state()
+        state.config.goal = "Reach agreement"
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "Something happened."
+        turn.prompt_tokens = 0
+        turn.completion_tokens = 0
+        ep.turns = [turn]
+        ep.index = 0
+        ep.simulated_time_end = ""
+
+        directive = await hook.after_episode(state, ep)
+        assert not directive.is_halt

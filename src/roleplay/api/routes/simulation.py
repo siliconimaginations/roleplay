@@ -77,6 +77,8 @@ async def run_session(
         status=runner.status,
         episodes_completed=runner.episodes_completed,
         episodes_requested=runner.episodes_requested,
+        goal_achieved=runner.goal_achieved,
+        goal_status=runner.goal_status,
     )
 
 
@@ -99,6 +101,8 @@ async def get_status(
         episodes_completed=runner.episodes_completed,
         episodes_requested=runner.episodes_requested,
         error=runner.error,
+        goal_achieved=runner.goal_achieved,
+        goal_status=runner.goal_status,
     )
 
 
@@ -126,6 +130,8 @@ async def pause_session(
         status=runner.status,
         episodes_completed=runner.episodes_completed,
         episodes_requested=runner.episodes_requested,
+        goal_achieved=runner.goal_achieved,
+        goal_status=runner.goal_status,
     )
 
 
@@ -154,6 +160,8 @@ async def inject_event(
         status=runner.status,
         episodes_completed=runner.episodes_completed,
         episodes_requested=runner.episodes_requested,
+        goal_achieved=runner.goal_achieved,
+        goal_status=runner.goal_status,
     )
 
 

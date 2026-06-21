@@ -32,6 +32,8 @@ export interface RunStatusResponse {
   episodes_completed: number;
   episodes_requested: number;
   error: string | null;
+  goal_achieved: boolean;
+  goal_status: string;
 }
 
 // WebSocket event types
@@ -73,6 +75,11 @@ export interface InjectionEvent {
   text: string;
 }
 
+export interface GoalAchievedEvent {
+  type: "goal_achieved";
+  status: string;
+}
+
 export type WsEvent =
   | TurnEvent
   | EpisodeStartEvent
@@ -80,7 +87,8 @@ export type WsEvent =
   | SimulationCompleteEvent
   | ErrorEvent
   | ConnectedEvent
-  | InjectionEvent;
+  | InjectionEvent
+  | GoalAchievedEvent;
 
 export interface HistoryTurn {
   episode: number;

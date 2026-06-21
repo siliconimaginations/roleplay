@@ -53,6 +53,8 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
   const [error, setError] = useState<string | null>(null);
   // "summary" = one-line per episode; "detail" = full turn dialog + summary
   const [viewMode, setViewMode] = useState<"summary" | "detail">("detail");
+  const [goalAchieved, setGoalAchieved] = useState(false);
+  const [goalStatus, setGoalStatus] = useState("");
 
   // Injections submitted but not yet consumed by an episode
   const [pendingInjections, setPendingInjections] = useState<string[]>([]);
@@ -72,6 +74,10 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
       .then((r) => {
         setStatus(r.status);
         onStatusChange?.(r.status);
+        if (r.goal_achieved) {
+          setGoalAchieved(true);
+          setGoalStatus(r.goal_status ?? "");
+        }
       })
       .catch(() => {});
   }, [sessionId, onStatusChange]);
@@ -184,6 +190,10 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
                 : ep,
             ),
           );
+          break;
+        case "goal_achieved":
+          setGoalAchieved(true);
+          setGoalStatus((ev as unknown as { status: string }).status ?? "");
           break;
         case "simulation_complete":
           setStatus("done");
@@ -421,6 +431,16 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
       {error && (
         <div className="px-4 py-2 bg-red-900/40 border-b border-red-700 text-red-300 text-xs">
           {error}
+        </div>
+      )}
+
+      {goalAchieved && (
+        <div className="px-4 py-3 bg-green-900/40 border-b border-green-600 text-green-300 text-sm flex items-start gap-2">
+          <span className="text-green-400 text-base leading-tight">✓</span>
+          <div>
+            <span className="font-semibold">Goal achieved — </span>
+            <span>{goalStatus.replace(/^GOAL MET:\s*/i, "")}</span>
+          </div>
         </div>
       )}
 

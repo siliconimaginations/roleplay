@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
@@ -31,6 +31,7 @@ from roleplay.config import load_env_file
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+    from roleplay.core.episode import Episode as _Ep
     from roleplay.core.simulation_state import SimulationState
     from roleplay.engine.observer import InjectionPayload, ObserverDirective
     from roleplay.engine.turn import Turn
@@ -115,6 +116,44 @@ class StreamPrinter:
 # ---------------------------------------------------------------------------
 
 
+async def _cli_check_goal(
+    state: SimulationState, episode: object, provider: object
+) -> tuple[str, bool]:
+    """Ask the LLM whether the simulation goal has been met.
+
+    Returns ``(status_text, met)`` where ``met`` is True when the response
+    starts with "GOAL MET:".
+    """
+    from roleplay.providers.base import CompletionRequest, Provider
+
+    # Use duck-typing so this works with real Episode objects and test mocks.
+    if not hasattr(episode, "turns") or not getattr(episode, "turns", None):
+        return ("(no turns to evaluate)", False)
+    ep = cast("_Ep", episode)
+
+    dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+    try:
+        resp = await cast("Provider", provider).complete(
+            CompletionRequest(
+                prompt=(
+                    f"Simulation goal: {state.config.goal}\n\n"
+                    "Latest episode dialog:\n" + dialog_text + "\n\n"
+                    "Has the goal been fully achieved based on the dialog above? "
+                    "Reply with exactly one of:\n"
+                    "GOAL MET: <one sentence explaining how it was achieved>\n"
+                    "GOAL NOT MET: <one sentence on what still needs to happen>"
+                ),
+                max_output_tokens=120,
+                temperature=0.1,
+            )
+        )
+        text = resp.text.strip()
+        met = text.upper().startswith("GOAL MET:")
+        return (text, met)
+    except Exception:
+        return ("(goal check unavailable)", False)
+
+
 class CliObserverHook:
     """ObserverHook that streams turn output and supports interactive pause."""
 
@@ -126,14 +165,18 @@ class CliObserverHook:
         max_episodes: int | None = None,
         persistence: SqlitePersistenceLayer | None = None,
         session_id: str = "",
+        provider: object = None,
     ) -> None:
         self._printer = printer
         self._interactive = interactive
         self._max_episodes = max_episodes
         self._persistence: SqlitePersistenceLayer | None = persistence
         self._session_id = session_id
+        self._provider = provider
         self._pause_flag = threading.Event()
         self._ep_start: float = 0.0
+        self.goal_achieved: bool = False
+        self.goal_status: str = ""
 
         if interactive:
             self._start_input_thread()
@@ -188,10 +231,10 @@ class CliObserverHook:
         return ObserverDirective.continue_()
 
     async def after_episode(self, state: SimulationState, episode: object) -> ObserverDirective:
-        from roleplay.core.episode import Episode as Ep
         from roleplay.engine.observer import ObserverDirective
 
-        ep = episode if isinstance(episode, Ep) else None
+        # Use duck-typing so this works with real Episode objects and test mocks.
+        ep: _Ep | None = cast("_Ep", episode) if hasattr(episode, "turns") else None
         turns = ep.turns if ep is not None else []
         tokens = sum(t.prompt_tokens + t.completion_tokens for t in turns)
         sim_end = str(ep.simulated_time_end) if ep is not None else ""
@@ -203,6 +246,15 @@ class CliObserverHook:
         if self._persistence and self._session_id and ep is not None:
             with contextlib.suppress(Exception):
                 await self._persistence.save_episode(self._session_id, ep)
+
+        # Goal checking — only if a goal and provider are available.
+        if state.config.goal and self._provider is not None and ep is not None and ep.turns:
+            goal_status, met = await _cli_check_goal(state, ep, self._provider)
+            if met:
+                self.goal_achieved = True
+                self.goal_status = goal_status
+                typer.echo(f"\n🎯 Goal achieved: {goal_status.removeprefix('GOAL MET:').strip()}")
+                return ObserverDirective.halt(f"Goal achieved: {goal_status}")
 
         return ObserverDirective.continue_()
 
@@ -407,6 +459,7 @@ async def _run_cmd(
             max_episodes=episodes,
             persistence=layer,
             session_id=state.config.session_id,
+            provider=provider_obj,
         )
 
         await layer.create_session(state)
@@ -487,6 +540,7 @@ async def _resume_cmd(
             max_episodes=max_episodes,
             persistence=layer,
             session_id=session_id,
+            provider=provider_obj,
         )
         engine = SimulationEngine(
             state=state,
