@@ -31,6 +31,7 @@ from roleplay.config import load_env_file
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+    from roleplay.core.episode import Episode as _Ep
     from roleplay.core.simulation_state import SimulationState
     from roleplay.engine.observer import InjectionPayload, ObserverDirective
     from roleplay.engine.turn import Turn
@@ -126,9 +127,9 @@ async def _cli_check_goal(
     from roleplay.providers.base import CompletionRequest, Provider
 
     # Use duck-typing so this works with real Episode objects and test mocks.
-    if not hasattr(episode, "turns") or not episode.turns:  # type: ignore[union-attr]
+    if not hasattr(episode, "turns") or not getattr(episode, "turns", None):
         return ("(no turns to evaluate)", False)
-    ep = episode
+    ep = cast("_Ep", episode)
 
     dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
     try:
@@ -233,11 +234,11 @@ class CliObserverHook:
         from roleplay.engine.observer import ObserverDirective
 
         # Use duck-typing so this works with real Episode objects and test mocks.
-        ep = episode if hasattr(episode, "turns") else None
-        turns = ep.turns if ep is not None else []  # type: ignore[union-attr]
+        ep: _Ep | None = cast("_Ep", episode) if hasattr(episode, "turns") else None
+        turns = ep.turns if ep is not None else []
         tokens = sum(t.prompt_tokens + t.completion_tokens for t in turns)
-        sim_end = str(ep.simulated_time_end) if ep is not None else ""  # type: ignore[union-attr]
-        ep_index = ep.index if ep is not None else 0  # type: ignore[union-attr]
+        sim_end = str(ep.simulated_time_end) if ep is not None else ""
+        ep_index = ep.index if ep is not None else 0
         wall = time.monotonic() - self._ep_start
 
         self._printer.print_episode_footer(ep_index, tokens, 0, sim_end, wall)
@@ -247,7 +248,7 @@ class CliObserverHook:
                 await self._persistence.save_episode(self._session_id, ep)
 
         # Goal checking — only if a goal and provider are available.
-        if state.config.goal and self._provider is not None and ep is not None and ep.turns:  # type: ignore[union-attr]
+        if state.config.goal and self._provider is not None and ep is not None and ep.turns:
             goal_status, met = await _cli_check_goal(state, ep, self._provider)
             if met:
                 self.goal_achieved = True

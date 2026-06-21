@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from roleplay.engine.observer import ObserverDirective
 
@@ -173,10 +173,10 @@ class ApiObserverHook:
         Returns ``(one-sentence status, met)`` where ``met`` is True when the
         LLM responds with a line starting "GOAL MET:".
         """
-        # Use duck-typing: anything with a .turns attribute is valid.
+        # Use duck-typing so this works with real Episode objects and test mocks.
         if not hasattr(episode, "turns"):
             return ("(no turns to evaluate)", False)
-        ep = episode
+        ep = cast("Episode", episode)
         dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
         try:
             from roleplay.providers.base import CompletionRequest
