@@ -373,11 +373,16 @@ class TestApiObserverHook:
 
         assert ep.summary == "Alice and Bob reached a preliminary agreement on pricing."
 
-    async def test_capitalized_fragment_without_punctuation_discarded(self) -> None:
-        """Summary that starts uppercase but lacks sentence-ending punctuation is discarded."""
+    async def test_capitalized_fragment_without_punctuation_kept(self) -> None:
+        """Summary starting uppercase is kept even without terminal punctuation.
+
+        The terminal-punctuation check was removed: the 6000-char dialog
+        truncation already prevents cut-off responses, so requiring a full-stop
+        was over-filtering.  A fragmentary start-cap is still better than
+        showing nothing at all.
+        """
         provider = MagicMock()
         resp = MagicMock()
-        # Looks legitimate but is a truncated fragment — no full stop
         resp.text = "In a high-stakes negotiation to meet Google Aggressive Q3"
 
         async def _complete(req: object) -> MagicMock:
@@ -400,8 +405,8 @@ class TestApiObserverHook:
         ep.index = 0
         await hook.after_episode(state, ep)
 
-        # Truncated fragment — no punctuation — should be discarded
-        assert ep.summary == ""
+        # Starts with uppercase → kept (no terminal-punctuation requirement)
+        assert ep.summary == "In a high-stakes negotiation to meet Google Aggressive Q3"
 
     async def test_long_dialog_truncated_in_prompt(self) -> None:
         """Dialog longer than 6000 chars is truncated before being sent to the LLM."""
