@@ -273,7 +273,6 @@ export function SessionsPage({ onOpen }: Props) {
           }}
         />
       )}
-      )}
     </div>
   );
 }
