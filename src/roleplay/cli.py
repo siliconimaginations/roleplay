@@ -132,6 +132,8 @@ async def _cli_check_goal(
     ep = cast("_Ep", episode)
 
     dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+    if len(dialog_text) > 6000:
+        dialog_text = "[earlier turns omitted]\n\n" + dialog_text[-6000:]
     try:
         resp = await cast("Provider", provider).complete(
             CompletionRequest(
@@ -140,10 +142,10 @@ async def _cli_check_goal(
                     "Latest episode dialog:\n" + dialog_text + "\n\n"
                     "Has the goal been fully achieved based on the dialog above? "
                     "Reply with exactly one of:\n"
-                    "GOAL MET: <one sentence explaining how it was achieved>\n"
-                    "GOAL NOT MET: <one sentence on what still needs to happen>"
+                    "GOAL MET: <one complete sentence explaining how it was achieved>\n"
+                    "GOAL NOT MET: <one complete sentence on what still needs to happen>"
                 ),
-                max_output_tokens=120,
+                max_output_tokens=200,
                 temperature=0.1,
             )
         )

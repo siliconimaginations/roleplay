@@ -113,24 +113,32 @@ class ApiObserverHook:
         summary = ""
         if ep.turns:
             dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+            # Truncate dialog to ~6 000 chars so the model has headroom for output.
+            if len(dialog_text) > 6000:
+                dialog_text = "[earlier turns omitted]\n\n" + dialog_text[-6000:]
             try:
                 from roleplay.providers.base import CompletionRequest
 
                 resp = await self._provider.complete(
                     CompletionRequest(
                         prompt=(
-                            "You are summarizing a roleplay scene. "
-                            "Write 1-2 complete sentences describing what happened, "
-                            "any decisions reached, and key dynamics. "
-                            "Be specific. Always end with a full stop. "
-                            "Output only the summary — no bullet points, no headers,"
-                            " no preamble, no incomplete sentences.\n\n"
-                            "Dialog:\n" + dialog_text + "\n\nSummary:"
+                            "Summarize the roleplay scene below in 1-2 complete sentences. "
+                            'Start directly with the subject (e.g. "Alice and Bob..."). '
+                            "Describe what happened, any decisions reached, and key dynamics. "
+                            "Be specific. End every sentence with a full stop. "
+                            "Output only the summary — no bullet points, no headers, "
+                            "no preamble, no incomplete sentences.\n\n"
+                            "Scene transcript:\n" + dialog_text
                         ),
                         max_output_tokens=400,
                     )
                 )
-                summary = resp.text.strip()
+                raw = resp.text.strip()
+                # Drop obvious fragments:
+                # - starts with lowercase  → continuation artifact
+                # - doesn't end with sentence-ending punctuation → truncated
+                # Both produce meaningless half-sentences; discard rather than show.
+                summary = raw if raw and raw[0].isupper() and raw[-1] in {".", "!", "?"} else ""
             except Exception:
                 logger.warning(
                     "Summary generation failed for episode %d of session %s",
@@ -178,6 +186,9 @@ class ApiObserverHook:
             return ("(no turns to evaluate)", False)
         ep = cast("Episode", episode)
         dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+        # Truncate dialog so context pressure doesn't produce degenerate output.
+        if len(dialog_text) > 6000:
+            dialog_text = "[earlier turns omitted]\n\n" + dialog_text[-6000:]
         try:
             from roleplay.providers.base import CompletionRequest
 
@@ -188,10 +199,10 @@ class ApiObserverHook:
                         "Latest episode dialog:\n" + dialog_text + "\n\n"
                         "Has the goal been fully achieved based on the dialog above? "
                         "Reply with exactly one of:\n"
-                        "GOAL MET: <one sentence explaining how it was achieved>\n"
-                        "GOAL NOT MET: <one sentence on what still needs to happen>"
+                        "GOAL MET: <one complete sentence explaining how it was achieved>\n"
+                        "GOAL NOT MET: <one complete sentence on what still needs to happen>"
                     ),
-                    max_output_tokens=120,
+                    max_output_tokens=200,
                     temperature=0.1,
                 )
             )

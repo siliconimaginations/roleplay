@@ -311,3 +311,131 @@ class TestApiObserverHook:
         runner = SessionRunner("new-session")
         assert runner.goal_achieved is False
         assert runner.goal_status == ""
+
+    # ------------------------------------------------------------------
+    # Summary quality tests
+    # ------------------------------------------------------------------
+
+    async def test_lowercase_fragment_discarded(self) -> None:
+        """Summary starting with lowercase is discarded as a continuation artifact."""
+        provider = MagicMock()
+        resp = MagicMock()
+        resp.text = "in a high-stakes negotiation to meet the deadline."
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "Let's talk."
+        ep.turns = [turn]
+        ep.index = 0
+        await hook.after_episode(state, ep)
+
+        # Fragment should be discarded — summary should be empty string
+        assert ep.summary == ""
+
+    async def test_valid_summary_kept(self) -> None:
+        """Summary starting with uppercase is kept as-is."""
+        provider = MagicMock()
+        resp = MagicMock()
+        resp.text = "Alice and Bob reached a preliminary agreement on pricing."
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "I agree to the terms."
+        ep.turns = [turn]
+        ep.index = 0
+        await hook.after_episode(state, ep)
+
+        assert ep.summary == "Alice and Bob reached a preliminary agreement on pricing."
+
+    async def test_capitalized_fragment_without_punctuation_discarded(self) -> None:
+        """Summary that starts uppercase but lacks sentence-ending punctuation is discarded."""
+        provider = MagicMock()
+        resp = MagicMock()
+        # Looks legitimate but is a truncated fragment — no full stop
+        resp.text = "In a high-stakes negotiation to meet Google Aggressive Q3"
+
+        async def _complete(req: object) -> MagicMock:
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        turn.output = "We need to close this deal."
+        ep.turns = [turn]
+        ep.index = 0
+        await hook.after_episode(state, ep)
+
+        # Truncated fragment — no punctuation — should be discarded
+        assert ep.summary == ""
+
+    async def test_long_dialog_truncated_in_prompt(self) -> None:
+        """Dialog longer than 6000 chars is truncated before being sent to the LLM."""
+        received_prompts: list[str] = []
+
+        provider = MagicMock()
+        resp = MagicMock()
+        resp.text = "Parties concluded their lengthy discussion."
+
+        async def _complete(req: object) -> MagicMock:
+            from roleplay.providers.base import CompletionRequest
+
+            if isinstance(req, CompletionRequest):
+                received_prompts.append(req.prompt)
+            return resp
+
+        provider.complete = _complete
+
+        runner = self._make_runner()
+        hook = ApiObserverHook(runner, provider, self._make_layer())
+
+        state = self._make_state()
+        state.config.goal = ""
+        state.history.completed_episodes.return_value = []
+
+        ep = MagicMock()
+        turn = MagicMock()
+        turn.party_id = "alice"
+        # Generate a very long output (> 6000 chars)
+        turn.output = "word " * 2000
+        ep.turns = [turn]
+        ep.index = 0
+        await hook.after_episode(state, ep)
+
+        # The prompt sent to the LLM should contain the truncation marker
+        assert received_prompts, "complete() was not called"
+        assert "[earlier turns omitted]" in received_prompts[0]
