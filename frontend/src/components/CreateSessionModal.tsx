@@ -143,19 +143,19 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Generate from prompt
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
+            <div className="flex flex-col gap-2">
+              <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !generating && void handleGenerate()}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && !generating && (e.preventDefault(), void handleGenerate())}
                 placeholder="e.g. a tense salary negotiation between an employee and their manager"
-                className="flex-1 bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                rows={3}
+                className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
               />
               <button
                 disabled={generating || !prompt.trim()}
                 onClick={() => void handleGenerate()}
-                className="px-4 py-2 text-sm rounded bg-purple-700 hover:bg-purple-600 font-medium disabled:opacity-40 whitespace-nowrap"
+                className="self-end px-4 py-2 text-sm rounded bg-purple-700 hover:bg-purple-600 font-medium disabled:opacity-40 whitespace-nowrap"
               >
                 {generating ? "Generating…" : "Generate"}
               </button>

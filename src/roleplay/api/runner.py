@@ -205,11 +205,18 @@ class ApiObserverHook:
                         "GOAL MET: <one complete sentence explaining how it was achieved>\n"
                         "GOAL NOT MET: <one complete sentence on what still needs to happen>"
                     ),
-                    max_output_tokens=200,
                     temperature=0.1,
                 )
             )
             text = resp.text.strip()
+            # Trim to the first complete sentence so a token-limit mid-sentence
+            # fragment never reaches the UI.
+            first_end = min(
+                (text.find(c) for c in ".!?" if text.find(c) != -1),
+                default=-1,
+            )
+            if first_end != -1:
+                text = text[: first_end + 1].strip()
             met = text.upper().startswith("GOAL MET:")
             return (text, met)
         except Exception:

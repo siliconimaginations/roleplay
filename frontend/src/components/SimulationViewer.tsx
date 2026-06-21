@@ -412,12 +412,13 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           </button>
         </div>
 
-        <input
+        <textarea
           value={injectText}
           onChange={(e) => setInjectText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void handleInject()}
-          placeholder="Inject event…"
-          className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-purple-500"
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), void handleInject())}
+          placeholder="Inject event… (Shift+Enter for newline)"
+          rows={2}
+          className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-xs w-56 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
         />
         <button
           disabled={!injectText.trim() || !!busyAction || !canInject}
@@ -440,10 +441,7 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
           <span className="text-green-400 text-base leading-tight">✓</span>
           <div>
             <span className="font-semibold">Goal achieved — </span>
-            <span>{(() => {
-              const detail = goalStatus.replace(/^GOAL MET:\s*/i, "").trim();
-              return detail.split(/\s+/).length >= 3 ? detail : "The session goal has been met.";
-            })()}</span>
+            <span>{goalStatus.replace(/^GOAL MET:\s*/i, "").trim() || "The session goal has been met."}</span>
           </div>
         </div>
       )}
