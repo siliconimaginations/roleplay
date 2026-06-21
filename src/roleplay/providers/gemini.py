@@ -20,16 +20,16 @@ from roleplay.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# Default fallback chain — ordered cheapest/fastest first, then by RPD headroom.
+# Default fallback chain — ordered newest first (by release date), then by capability.
 # Verify current free-tier limits at https://aistudio.google.com/apikey → Rate Limits.
 # The scenario YAML can override the primary model via config.default_model.
 _DEFAULT_MODELS = (
-    "gemini-2.0-flash",  # stable, widely available
-    "gemini-2.0-flash-lite",  # faster, lower cost
-    "gemini-2.5-flash-lite",  # newer lite tier
-    "gemini-2.5-flash",  # higher quality fallback
-    "gemini-3.1-flash-lite",  # high-quota fallback
-    "gemini-3.5-flash",  # newest generation
+    "gemini-3.5-flash",  # May 2026 — newest Gemini, most capable
+    "gemini-3.1-flash-lite",  # 2026 — fast, stable
+    "gemma-4-31b-it",  # Apr 2026 — Gemma 4 dense flagship
+    "gemma-4-26b-a4b-it",  # Apr 2026 — Gemma 4 MoE variant
+    "gemini-2.5-flash",  # 2025 — price-performance
+    "gemini-2.5-flash-lite",  # 2025 — budget / fastest
 )
 
 # Maximum number of RPM retries before a model is added to the session skip list.
