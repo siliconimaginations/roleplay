@@ -1002,7 +1002,7 @@ class TestCliCheckGoal:
         turn.output = "We need to discuss pricing first."
         ep.turns = [turn]
 
-        status, met = await _cli_check_goal(state, ep, provider)
+        _status, met = await _cli_check_goal(state, ep, provider)
         assert met is False
 
     @pytest.mark.asyncio
@@ -1026,7 +1026,7 @@ class TestCliCheckGoal:
         ep = MagicMock()
         ep.turns = []
 
-        status, met = await _cli_check_goal(state, ep, provider)
+        _status, met = await _cli_check_goal(state, ep, provider)
         assert met is False
         assert len(called) == 0
 
