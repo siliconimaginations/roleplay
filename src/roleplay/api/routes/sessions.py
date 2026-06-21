@@ -362,11 +362,16 @@ async def get_session_history(
 async def generate_session_yaml(
     request: Request,
     _auth: Auth,
+    fix_cycles: int = 0,
 ) -> dict[str, object] | JSONResponse:
     """Generate a YAML scenario from a natural-language prompt.
 
     **Request body** — plain text (``Content-Type: text/plain``):
     A natural-language description of the desired scenario.
+
+    **Query params**:
+    - ``fix_cycles`` (int, 0-5, default 0): number of automatic
+      validation-correction cycles to run after the initial generation.
 
     **Response** — JSON::
 
@@ -401,7 +406,8 @@ async def generate_session_yaml(
             break
 
     try:
-        yaml_text = await generate_yaml_scenario(prompt, provider)
+        cycles = max(0, min(fix_cycles, 5))
+        yaml_text = await generate_yaml_scenario(prompt, provider, fix_cycles=cycles)
     except ProviderError as exc:
         return JSONResponse(
             status_code=422,

@@ -891,8 +891,22 @@ def generate(
         str,
         typer.Option("--provider", "-p", help="Provider to use: gemini | claude | mock"),
     ] = "gemini",
+    fix_cycles: Annotated[
+        int,
+        typer.Option(
+            "--fix-cycles",
+            "-f",
+            help="Validation-correction cycles after generation (0-5, default 0)",
+            min=0,
+            max=5,
+        ),
+    ] = 0,
 ) -> None:
-    """Generate a YAML scenario file from a natural-language prompt."""
+    """Generate a YAML scenario file from a natural-language prompt.
+
+    Use --fix-cycles to automatically validate the output and ask the LLM to
+    correct any errors, up to the specified number of times.
+    """
     import asyncio
 
     from roleplay.api.runner import _build_registry
@@ -911,7 +925,7 @@ def generate(
     prov = registry.get(provider)
 
     try:
-        yaml_text = asyncio.run(generate_yaml_scenario(prompt, prov))
+        yaml_text = asyncio.run(generate_yaml_scenario(prompt, prov, fix_cycles=fix_cycles))
     except ProviderError as exc:
         typer.echo(f"✗ Provider error: {exc}", err=True)
         raise typer.Exit(1) from None
