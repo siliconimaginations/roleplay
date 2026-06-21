@@ -284,6 +284,7 @@ async def generate_yaml_scenario(
 
     from roleplay.providers.base import CompletionRequest
     from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
+    from roleplay.validate import validate_scenario
 
     fix_cycles = max(0, min(fix_cycles, 5))
 
@@ -302,7 +303,14 @@ async def generate_yaml_scenario(
                 tmp.write(yaml_text)
                 tmp_path = Path(tmp.name)
             load_yaml_scenario(tmp_path)
+            # Also run semantic validation (catches deprecated/unknown models, etc.)
+            sem = validate_scenario(tmp_path)
             tmp_path.unlink(missing_ok=True)
+            if sem.errors:
+                error_text = "; ".join(
+                    f"{e.field}: {e.message}" for e in sem.errors
+                )
+                raise ValidationError(error_text)
             break  # valid — no more cycles needed
         except ValidationError as exc:
             tmp_path.unlink(missing_ok=True)

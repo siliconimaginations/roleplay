@@ -130,15 +130,19 @@ class ApiObserverHook:
                             " no preamble, no incomplete sentences.\n\n"
                             "Dialog:\n" + dialog_text + "\n\nSummary:"
                         ),
-                        max_output_tokens=400,
+                        max_output_tokens=600,
                     )
                 )
                 raw = resp.text.strip()
                 # Drop obvious continuation artefacts: a summary starting with
-                # lowercase is a prompt-completion leak. Terminal-punctuation
-                # check removed — the 6000-char truncation gives the model
-                # enough headroom to finish its output without being cut short.
-                summary = raw if raw and raw[0].isupper() else ""
+                # lowercase is a prompt-completion leak.
+                # If the model hit the token limit mid-sentence, trim to the
+                # last complete sentence rather than showing a fragment.
+                if not raw or not raw[0].isupper():
+                    summary = ""
+                else:
+                    last_end = max(raw.rfind("."), raw.rfind("!"), raw.rfind("?"))
+                    summary = raw[: last_end + 1].strip() if last_end != -1 else raw
             except Exception:
                 logger.warning(
                     "Summary generation failed for episode %d of session %s",
