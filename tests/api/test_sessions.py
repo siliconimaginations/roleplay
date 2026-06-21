@@ -675,9 +675,7 @@ class TestSessionIdDedup:
         new_id = r2.json()["session_id"]
         assert new_id == "test-session-001-1"
 
-    async def test_triple_duplicate_gets_incrementing_suffix(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_triple_duplicate_gets_incrementing_suffix(self, client: AsyncClient) -> None:
         await client.post("/sessions", content=MINIMAL_YAML)
         r2 = await client.post("/sessions", content=MINIMAL_YAML)
         r3 = await client.post("/sessions", content=MINIMAL_YAML)
@@ -803,9 +801,7 @@ class TestDeriveSession:
         body = resp.json()
         assert body["origin"] == "derive"
 
-    async def test_derive_with_invalid_yaml_returns_422(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_derive_with_invalid_yaml_returns_422(self, client: AsyncClient) -> None:
         await client.post("/sessions", content=_DERIVE_YAML)
         resp = await client.post(
             "/sessions/derive-source/derive",
@@ -813,9 +809,7 @@ class TestDeriveSession:
         )
         assert resp.status_code == 422
 
-    async def test_derive_creates_new_session_in_list(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_derive_creates_new_session_in_list(self, client: AsyncClient) -> None:
         await client.post("/sessions", content=_DERIVE_YAML)
         derive_resp = await client.post("/sessions/derive-source/derive", json={})
         new_id = derive_resp.json()["session_id"]
@@ -825,4 +819,3 @@ class TestDeriveSession:
         # Origin should be visible in list
         entry = next(s for s in list_resp.json() if s["session_id"] == new_id)
         assert entry["origin"] == "derive"
-
