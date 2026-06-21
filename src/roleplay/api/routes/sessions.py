@@ -405,7 +405,6 @@ async def validate_session(
     import tempfile
     from pathlib import Path
 
-
     body = await request.body()
     try:
         yaml_text = body.decode("utf-8")
