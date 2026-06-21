@@ -405,8 +405,6 @@ async def validate_session(
     import tempfile
     from pathlib import Path
 
-    from roleplay.scenario_yaml import ValidationError, load_yaml_scenario
-
     body = await request.body()
     try:
         yaml_text = body.decode("utf-8")
@@ -427,12 +425,20 @@ async def validate_session(
         tmp_path = Path(tmp.name)
 
     try:
-        load_yaml_scenario(tmp_path)
-        return {"valid": True, "errors": []}
-    except ValidationError as exc:
+        from roleplay.validate import validate_scenario
+
+        result = validate_scenario(tmp_path)
+        if result.valid:
+            return {"valid": True, "errors": []}
         return JSONResponse(
             status_code=422,
-            content={"valid": False, "errors": exc.errors},
+            content={
+                "valid": False,
+                "errors": [
+                    f"{e.field}: {e.message}" + (f" — {e.hint}" if e.hint else "")
+                    for e in result.errors
+                ],
+            },
         )
     except Exception as exc:
         return JSONResponse(
