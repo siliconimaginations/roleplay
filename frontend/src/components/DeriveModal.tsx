@@ -63,9 +63,9 @@ export function DeriveModal({ sourceId, onClose, onDerived }: Props) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* New session ID */}
-          <div className="mb-5">
+          <div className="px-6 pt-6 mb-5">
             <label className="block text-xs font-medium text-gray-400 mb-1">
               New session ID{" "}
               <span className="text-gray-600 font-normal">(optional — auto-generated if blank)</span>
@@ -80,7 +80,7 @@ export function DeriveModal({ sourceId, onClose, onDerived }: Props) {
           </div>
 
           {/* YAML editor */}
-          <div className="mb-1">
+          <div className="flex-1 min-h-0 overflow-auto px-6 pb-6">
             <label className="block text-xs font-medium text-gray-400 mb-2">
               Scenario config
             </label>
