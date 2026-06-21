@@ -88,8 +88,13 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
     getSessionHistory(sessionId)
       .then((eps) => {
         if (eps.length > 0) {
-          setGroups(
-            eps.map((ep) => ({
+          // Only populate from DB if the WebSocket hasn't already delivered live
+          // events. If we unconditionally overwrite, a slow fetch that completes
+          // after ep1's episode_start will reset groups to [ep0] and ep1
+          // disappears until simulation_complete triggers a full reload.
+          setGroups((current) => {
+            if (current.length > 0) return current;
+            return eps.map((ep) => ({
               episode: ep.episode,
               done: ep.done,
               summary: ep.summary ?? "",
@@ -99,8 +104,8 @@ export function SimulationViewer({ sessionId, partyIds, onStatusChange }: Props)
                 output: t.output,
                 proposals: t.state_update_proposals,
               })),
-            })),
-          );
+            }));
+          });
         }
       })
       .catch(() => {});
