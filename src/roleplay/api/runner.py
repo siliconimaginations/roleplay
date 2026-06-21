@@ -120,13 +120,14 @@ class ApiObserverHook:
                     CompletionRequest(
                         prompt=(
                             "You are summarizing a roleplay scene. "
-                            "Write 1-2 sentences describing what happened, any decisions reached, "
-                            "and key dynamics. Be specific and concise. "
-                            "Output only the summary - no bullet points, no headers,"
-                            " no preamble.\n\n"
+                            "Write 1-2 complete sentences describing what happened, "
+                            "any decisions reached, and key dynamics. "
+                            "Be specific. Always end with a full stop. "
+                            "Output only the summary — no bullet points, no headers,"
+                            " no preamble, no incomplete sentences.\n\n"
                             "Dialog:\n" + dialog_text + "\n\nSummary:"
                         ),
-                        max_output_tokens=200,
+                        max_output_tokens=400,
                     )
                 )
                 summary = resp.text.strip()
