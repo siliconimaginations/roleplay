@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -55,7 +55,7 @@ class SessionSummary:
     status: str
     started_at: datetime
     last_saved_at: datetime
-    origin: str | None = None  # None = original, 'fork', 'derive'
+    origin: Literal["fork", "derive"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ class PersistenceLayer(Protocol):  # pragma: no cover
         state: SimulationState,
         *,
         parent_id: str | None = None,
-        origin: str | None = None,
+        origin: Literal["fork", "derive"] | None = None,
     ) -> None:
         """Write the session row and all party rows. Idempotent.
 
