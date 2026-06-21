@@ -109,8 +109,9 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Generate from prompt */}
+          <div className="px-6 pt-6">
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Generate from prompt
@@ -156,8 +157,11 @@ export function CreateSessionModal({ onClose, onCreate }: Props) {
             immediately and simulation starts when you press{" "}
             <span className="text-blue-400">Run</span> in the session view.
           </p>
+          </div>
 
-          <YamlEditor value={yaml} onChange={setYaml} rows={20} submitError={error} />
+          <div className="flex-1 min-h-0 overflow-auto px-6 pb-6">
+            <YamlEditor value={yaml} onChange={setYaml} rows={20} submitError={error} />
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-800">
