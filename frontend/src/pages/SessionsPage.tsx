@@ -3,11 +3,11 @@ import type { SessionSummary } from "../api/types";
 import {
   createSession,
   deleteSession,
-  deriveSession,
   forkSession,
   listSessions,
 } from "../api/client";
 import { CreateSessionModal } from "../components/CreateSessionModal";
+import { DeriveModal } from "../components/DeriveModal";
 
 const STATUS_COLORS: Record<string, string> = {
   idle: "text-gray-400",
@@ -21,11 +21,8 @@ interface Props {
   onOpen: (id: string) => void;
 }
 
-type ActionMode = "fork" | "derive";
-
-interface NameModalState {
+interface ForkModalState {
   sourceId: string;
-  mode: ActionMode;
 }
 
 export function SessionsPage({ onOpen }: Props) {
@@ -34,8 +31,9 @@ export function SessionsPage({ onOpen }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
-  const [nameModal, setNameModal] = useState<NameModalState | null>(null);
+  const [forkModal, setForkModal] = useState<ForkModalState | null>(null);
   const [pendingName, setPendingName] = useState("");
+  const [deriveSourceId, setDeriveSourceId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -62,22 +60,23 @@ export function SessionsPage({ onOpen }: Props) {
     onOpen(s.session_id);
   }
 
-  function openNameModal(id: string, mode: ActionMode) {
-    setNameModal({ sourceId: id, mode });
+  function openForkModal(id: string) {
+    setForkModal({ sourceId: id });
     setPendingName("");
   }
 
-  async function commitAction() {
-    if (!nameModal) return;
-    const { sourceId, mode } = nameModal;
+  function openDeriveModal(id: string) {
+    setDeriveSourceId(id);
+  }
+
+  async function commitFork() {
+    if (!forkModal) return;
+    const { sourceId } = forkModal;
     const customId = pendingName.trim() || undefined;
-    setNameModal(null);
-    setActionId(sourceId + "-" + mode);
+    setForkModal(null);
+    setActionId(sourceId + "-fork");
     try {
-      const s =
-        mode === "fork"
-          ? await forkSession(sourceId, customId)
-          : await deriveSession(sourceId, customId);
+      const s = await forkSession(sourceId, customId);
       await refresh();
       onOpen(s.session_id);
     } catch (e) {
@@ -181,14 +180,14 @@ export function SessionsPage({ onOpen }: Props) {
                   >
                     <button
                       disabled={!!actionId}
-                      onClick={() => openNameModal(s.session_id, "fork")}
+                      onClick={() => openForkModal(s.session_id)}
                       className="mr-1 px-2 py-1 text-xs rounded border border-gray-700 hover:bg-gray-800 disabled:opacity-40"
                     >
                       {actionId === s.session_id + "-fork" ? "Forking…" : "Fork"}
                     </button>
                     <button
                       disabled={!!actionId}
-                      onClick={() => openNameModal(s.session_id, "derive")}
+                      onClick={() => openDeriveModal(s.session_id)}
                       className="mr-1 px-2 py-1 text-xs rounded border border-purple-800 text-purple-400 hover:bg-purple-900/30 disabled:opacity-40"
                     >
                       {actionId === s.session_id + "-derive" ? "Deriving…" : "Derive"}
@@ -215,24 +214,19 @@ export function SessionsPage({ onOpen }: Props) {
         />
       )}
 
-      {/* Name modal for fork / derive */}
-      {nameModal && (
+      {/* Fork modal */}
+      {forkModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-          onClick={() => setNameModal(null)}
+          onClick={() => setForkModal(null)}
         >
           <div
             className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-sm font-semibold text-gray-200 mb-1 capitalize">
-              {nameModal.mode} session
-            </h2>
+            <h2 className="text-sm font-semibold text-gray-200 mb-1">Fork session</h2>
             <p className="text-xs text-gray-500 mb-4">
-              {nameModal.mode === "fork"
-                ? "Copies all current run state into a new session."
-                : "Inherits the config and starts fresh from the initial state."}
-              {" "}Leave name blank for an auto-generated ID.
+              Copies all current run state into a new session. Leave name blank for an auto-generated ID.
             </p>
             <label className="block text-xs text-gray-400 mb-1">
               New session name (optional)
@@ -242,8 +236,8 @@ export function SessionsPage({ onOpen }: Props) {
               value={pendingName}
               onChange={(e) => setPendingName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void commitAction();
-                if (e.key === "Escape") setNameModal(null);
+                if (e.key === "Enter") void commitFork();
+                if (e.key === "Escape") setForkModal(null);
               }}
               placeholder="my-ablation-run-1"
               className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 mb-4"
@@ -251,20 +245,34 @@ export function SessionsPage({ onOpen }: Props) {
             />
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setNameModal(null)}
+                onClick={() => setForkModal(null)}
                 className="px-3 py-1.5 text-xs rounded border border-gray-700 text-gray-400 hover:bg-gray-800"
               >
                 Cancel
               </button>
               <button
-                onClick={() => void commitAction()}
-                className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 font-medium capitalize"
+                onClick={() => void commitFork()}
+                className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 font-medium"
               >
-                {nameModal.mode}
+                Fork
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Derive modal */}
+      {deriveSourceId && (
+        <DeriveModal
+          sourceId={deriveSourceId}
+          onClose={() => setDeriveSourceId(null)}
+          onDerived={(newId) => {
+            setDeriveSourceId(null);
+            void refresh();
+            onOpen(newId);
+          }}
+        />
+      )}
       )}
     </div>
   );
