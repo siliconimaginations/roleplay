@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from roleplay.engine.observer import ObserverDirective
@@ -210,11 +209,6 @@ class ApiObserverHook:
                 )
             )
             text = resp.text.strip()
-            # Trim to the first complete sentence so a token-limit mid-sentence
-            # fragment never reaches the UI.
-            m = re.search(r"[.!?](?=\s|$)", text)
-            if m:
-                text = text[: m.end()].strip()
             met = text.upper().startswith("GOAL MET:")
             return (text, met)
         except Exception:
