@@ -30,6 +30,54 @@ _VALID_KINDS = {"person", "organization"}
 # Types accepted as StateValue
 _VALID_STATE_TYPES = (str, int, float, bool, type(None))
 
+# Known-current model IDs per provider (used for validation warnings).
+# A model NOT in this set gets a warning (could be brand-new — we don't error).
+# A model IN _DEPRECATED_MODELS gets an error regardless.
+_KNOWN_MODELS: dict[str, set[str]] = {
+    "gemini": {
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemma-3-27b-it",
+        "gemma-3-12b-it",
+        "gemma-3n-e4b-it",
+    },
+    "claude": {
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+    },
+}
+
+# Models that are confirmed shut-down / removed from the API.
+# Using one of these will almost certainly fail at runtime.
+_DEPRECATED_MODELS: dict[str, set[str]] = {
+    "gemini": {
+        "gemini-1.0-pro",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-exp",
+    },
+    "claude": {
+        "claude-instant-1",
+        "claude-instant-1.2",
+        "claude-2",
+        "claude-2.0",
+        "claude-2.1",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307",
+    },
+}
+
 
 @dataclass
 class ValidationError:
@@ -113,6 +161,13 @@ def validate_scenario(path: Path) -> ValidationResult:
             result.party_count = len(scenario.state.parties)
             result.provider = scenario.provider_name
             result.episodes = scenario.max_episodes or 0
+            # Validate model name now that we know the provider.
+            _check_model(
+                scenario.state.config.default_model,
+                scenario.provider_name,
+                "config.default_model",
+                result,
+            )
             return result
         except YAMLValidationError as exc:
             for msg in exc.errors:
@@ -199,6 +254,35 @@ def validate_scenario(path: Path) -> ValidationResult:
 # ---------------------------------------------------------------------------
 # Internal checkers
 # ---------------------------------------------------------------------------
+
+
+def _check_model(model: str, provider: str, field: str, result: ValidationResult) -> None:
+    """Validate *model* for *provider*; append errors/warnings to *result*."""
+    if not model:
+        return  # empty → use provider defaults, always fine
+
+    deprecated = _DEPRECATED_MODELS.get(provider, set())
+    known = _KNOWN_MODELS.get(provider, set())
+
+    if model in deprecated:
+        result.errors.append(
+            ValidationError(
+                field=field,
+                message=f"Model {model!r} has been shut down and will not work at runtime.",
+                hint=(
+                    f"Replace it with a current {provider} model. "
+                    f"Supported: {', '.join(sorted(known))}."
+                    if known
+                    else f"Remove the {field} field to use the provider default."
+                ),
+            )
+        )
+    elif known and model not in known:
+        result.warnings.append(
+            f"{field}: {model!r} is not a recognised {provider} model. "
+            "If this is a recently released model it may still work; "
+            f"otherwise check the spelling. Known models: {', '.join(sorted(known))}."
+        )
 
 
 def _check_simulation(sim: dict[str, Any], result: ValidationResult) -> None:
