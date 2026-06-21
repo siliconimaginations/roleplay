@@ -113,24 +113,30 @@ class ApiObserverHook:
         summary = ""
         if ep.turns:
             dialog_text = "\n\n".join(f"{t.party_id.upper()}: {t.output}" for t in ep.turns)
+            # Truncate dialog to ~6 000 chars so the model has headroom for output.
+            if len(dialog_text) > 6000:
+                dialog_text = "[earlier turns omitted]\n\n" + dialog_text[-6000:]
             try:
                 from roleplay.providers.base import CompletionRequest
 
                 resp = await self._provider.complete(
                     CompletionRequest(
                         prompt=(
-                            "You are summarizing a roleplay scene. "
-                            "Write 1-2 complete sentences describing what happened, "
-                            "any decisions reached, and key dynamics. "
-                            "Be specific. Always end with a full stop. "
-                            "Output only the summary — no bullet points, no headers,"
-                            " no preamble, no incomplete sentences.\n\n"
-                            "Dialog:\n" + dialog_text + "\n\nSummary:"
+                            "Summarize the roleplay scene below in 1-2 complete sentences. "
+                            'Start directly with the subject (e.g. "Alice and Bob..."). '
+                            "Describe what happened, any decisions reached, and key dynamics. "
+                            "Be specific. End every sentence with a full stop. "
+                            "Output only the summary — no bullet points, no headers, "
+                            "no preamble, no incomplete sentences.\n\n"
+                            "Scene transcript:\n" + dialog_text
                         ),
                         max_output_tokens=400,
                     )
                 )
-                summary = resp.text.strip()
+                raw = resp.text.strip()
+                # Drop obvious fragments: if the response starts lowercase it's
+                # a continuation artifact — discard rather than show garbage.
+                summary = raw if raw and raw[0].isupper() else ""
             except Exception:
                 logger.warning(
                     "Summary generation failed for episode %d of session %s",
