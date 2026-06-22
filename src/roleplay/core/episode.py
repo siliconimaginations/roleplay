@@ -65,6 +65,7 @@ class Turn:
     tool_calls: tuple[ToolCall, ...] = ()
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    model_used: str = ""  # Actual model that generated this turn (e.g. "gemini-2.0-flash")
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def total_tokens(self) -> int:

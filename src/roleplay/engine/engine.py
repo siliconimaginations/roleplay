@@ -303,6 +303,7 @@ class SimulationEngine:
                     index=len(episode.turns),
                     output=output_text,
                     state_update_proposals=proposals,
+                    model_used=response.model_used,
                 )
             )
 

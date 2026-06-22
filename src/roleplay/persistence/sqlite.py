@@ -525,7 +525,8 @@ class SqlitePersistenceLayer:
                 await db.execute(
                     """
                     SELECT party_id, turn_index, output, state_proposals_json,
-                           tool_calls_json, prompt_tokens, completion_tokens, timestamp
+                           tool_calls_json, prompt_tokens, completion_tokens,
+                           model_used, timestamp
                     FROM turns
                     WHERE episode_id = ?
                     ORDER BY turn_index

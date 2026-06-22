@@ -159,7 +159,7 @@ def encode_turn_row(session_id: str, ep_id: str, turn: Turn) -> dict[str, object
         "tool_calls_json": encode_tool_calls(turn.tool_calls),
         "prompt_tokens": turn.prompt_tokens,
         "completion_tokens": turn.completion_tokens,
-        "model_used": "",
+        "model_used": turn.model_used,
         "timestamp": _dt_to_str(turn.timestamp),
     }
 
@@ -176,6 +176,7 @@ def decode_turn(row: dict[str, Any]) -> Turn:
         tool_calls=decode_tool_calls(row["tool_calls_json"]),
         prompt_tokens=row["prompt_tokens"],
         completion_tokens=row["completion_tokens"],
+        model_used=row.get("model_used", ""),
         timestamp=_str_to_dt(row["timestamp"]),
     )
 

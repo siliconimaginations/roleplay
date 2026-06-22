@@ -484,6 +484,7 @@ async def get_session_history(
                         "episode": ep.index,
                         "party_id": t.party_id,
                         "output": t.output,
+                        "model_used": t.model_used,
                         "state_update_proposals": t.state_update_proposals,
                     }
                     for t in ep.turns
@@ -718,6 +719,7 @@ async def export_session(
                 {
                     "party_id": t.party_id,
                     "output": t.output,
+                    "model_used": t.model_used,
                     "state_update_proposals": t.state_update_proposals,
                 }
                 for t in ep.turns
