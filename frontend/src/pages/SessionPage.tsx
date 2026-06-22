@@ -113,8 +113,8 @@ export function SessionPage({ sessionId, onBack }: Props) {
           ← Sessions
         </button>
         <span className="text-gray-600">/</span>
-        <span className="font-mono text-sm text-gray-300 select-all">
-          {sessionId}
+        <span className="text-sm text-gray-300 select-all">
+          {session?.display_name || <span className="font-mono">{sessionId.slice(0, 8)}…</span>}
         </span>
         <span
           className={`text-xs px-2 py-0.5 rounded font-medium ${STATUS_COLORS[status] ?? "bg-gray-700 text-gray-300"}`}

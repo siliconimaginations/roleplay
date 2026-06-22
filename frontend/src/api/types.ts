@@ -11,6 +11,7 @@ export interface PartySchema {
 
 export interface SessionSummary {
   session_id: string;
+  display_name: string;
   created_at: string;
   episode_count: number;
   status: RunStatus;
@@ -20,6 +21,7 @@ export interface SessionSummary {
 
 export interface SessionDetail {
   session_id: string;
+  display_name: string;
   created_at: string;
   episode_count: number;
   status: RunStatus;

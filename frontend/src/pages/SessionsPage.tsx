@@ -87,7 +87,7 @@ export function SessionsPage({ onOpen }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm(`Delete session ${id.slice(0, 8)}…?`)) return;
+    if (!confirm(`Delete this session?`)) return;
     setActionId(id + "-delete");
     try {
       await deleteSession(id);
@@ -152,15 +152,10 @@ export function SessionsPage({ onOpen }: Props) {
                   className="hover:bg-gray-900/50 cursor-pointer"
                   onClick={() => onOpen(s.session_id)}
                 >
-                  <td className="px-4 py-3 font-mono text-gray-300">
-                    {s.session_id.slice(0, 8)}…
-                    <span className="text-gray-600 text-xs ml-1">
-                      {s.session_id.slice(8, 13)}
-                    </span>
+                  <td className="px-4 py-3 text-gray-300">
+                    <div className="font-medium">{s.display_name || <span className="font-mono text-gray-500 text-xs">{s.session_id.slice(0, 8)}…</span>}</div>
                     {s.origin && (
-                      <span className="ml-2 text-xs text-purple-400 font-medium">
-                        [{s.origin}]
-                      </span>
+                      <span className="text-xs text-purple-400 font-medium">[{s.origin}]</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-400">
@@ -226,7 +221,7 @@ export function SessionsPage({ onOpen }: Props) {
           >
             <h2 className="text-sm font-semibold text-gray-200 mb-1">Fork session</h2>
             <p className="text-xs text-gray-500 mb-4">
-              Copies all current run state into a new session. Leave name blank for an auto-generated ID.
+              Copies all current run state into a new session. Leave blank to use no display name.
             </p>
             <label className="block text-xs text-gray-400 mb-1">
               New session name (optional)

@@ -92,28 +92,28 @@ export const deleteSession = (id: string): Promise<void> =>
 
 export const forkSession = (
   id: string,
-  sessionId?: string,
+  displayName?: string,
 ): Promise<SessionSummary> =>
   apiFetch(`/sessions/${id}/fork`, {
     method: "POST",
-    ...(sessionId
+    ...(displayName
       ? {
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId }),
+          body: JSON.stringify({ display_name: displayName }),
         }
       : {}),
   });
 
 export const deriveSession = (
   id: string,
-  sessionId?: string,
+  displayName?: string,
   yaml?: string,
 ): Promise<SessionSummary> =>
   apiFetch(`/sessions/${id}/derive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(displayName ? { display_name: displayName } : {}),
       ...(yaml ? { yaml } : {}),
     }),
   });
