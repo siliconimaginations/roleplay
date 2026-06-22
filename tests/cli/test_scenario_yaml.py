@@ -73,7 +73,10 @@ def test_load_returns_scenario_result(tmp_path: Path) -> None:
 
 def test_session_id_preserved(tmp_path: Path) -> None:
     result = load_yaml_scenario(_write(tmp_path, _MINIMAL))
-    assert result.state.config.session_id == "test-session"
+    # session_id is always a UUID; display_name holds the YAML session_id value
+    import uuid
+    uuid.UUID(result.state.config.session_id)  # raises if not a valid UUID
+    assert result.state.config.display_name == "test-session"
 
 
 def test_session_id_auto_generated(tmp_path: Path) -> None:

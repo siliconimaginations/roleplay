@@ -57,7 +57,7 @@ async def test_engine_runs_two_episodes(scenario_yaml_path: Path, db_path: str) 
     for ep in state.history.completed_episodes():
         await layer.save_episode(state.config.session_id, ep)
     await layer.save_state(state)
-    loaded = await layer.load_session("integration-test-001")
+    loaded = await layer.load_session(state.config.session_id)
     assert len(loaded.history.completed_episodes()) == 2
 
     await layer.close()
@@ -92,7 +92,7 @@ async def test_engine_fork_and_resume(scenario_yaml_path: Path, db_path: str) ->
 
     # Fork
     fork_id = "integration-fork-001"
-    await layer.fork("integration-test-001", fork_id)
+    await layer.fork(state.config.session_id, fork_id)
 
     # Run one more episode on the fork
     fork_state = await layer.load_session(fork_id)
@@ -105,7 +105,7 @@ async def test_engine_fork_and_resume(scenario_yaml_path: Path, db_path: str) ->
     await layer.save_state(fork_state)
 
     # Original should still have 1 episode
-    original = await layer.load_session("integration-test-001")
+    original = await layer.load_session(state.config.session_id)
     assert len(original.history.completed_episodes()) == 1
 
     # Fork should have 2 episodes
@@ -201,7 +201,8 @@ async def test_api_create_run_inspect(scenario_yaml_path: Path) -> None:
         r = await ac.post("/sessions", content=yaml_text)
         assert r.status_code == 201
         sid = r.json()["session_id"]
-        assert sid == "integration-test-001"
+        assert r.json()["display_name"] == "integration-test-001"
+        assert sid != "integration-test-001"  # always a UUID
 
         # List
         r2 = await ac.get("/sessions")
