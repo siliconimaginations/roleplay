@@ -748,3 +748,167 @@ class TestAfterEpisodeSummaryException:
         # Should not raise; summary falls back to ""
         await hook.after_episode(state, ep)
         assert ep.summary == ""
+
+
+class TestRemainingRunnerGaps:
+    """Cover the last uncovered branches in runner.py."""
+
+    # ── start() normal path (lines 250-253) ─────────────────────────────────
+
+    def test_start_on_idle_runner_sets_running(self) -> None:
+        """start() on an idle runner spawns a task and sets status=running."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from roleplay.api.runner import SessionRunner
+
+        async def _go() -> None:
+            runner = SessionRunner("idle-start")
+            assert runner.status == "idle"
+            state = MagicMock()
+            layer = MagicMock()
+            layer.close = AsyncMock()
+
+            with patch.object(runner, "_run", new=AsyncMock()) as mock_run:
+                runner.start(state, layer, 3)
+                assert runner.status == "running"
+                assert runner.episodes_requested == 3
+                assert runner._pause_requested is False
+                assert runner._task is not None
+                # Let the mocked _run complete
+                await asyncio.sleep(0)
+
+            mock_run.assert_called_once_with(state, layer, 3)
+
+        asyncio.run(_go())
+
+    # ── _run: status already paused → not overwritten to done (line 331→333) ──
+
+    async def test_run_does_not_overwrite_paused_status(self) -> None:
+        """If engine halts and status is 'paused', _run leaves it as-is."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from roleplay.api.runner import SessionRunner
+        from roleplay.persistence.sqlite import SqlitePersistenceLayer
+        from roleplay.scenario_yaml import load_yaml_scenario
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+
+        p = Path(tempfile.mktemp(suffix=".yaml", dir="/tmp"))
+        p.write_text(
+            "session_id: paused-run\n"
+            "parties:\n"
+            "  - id: alice\n    name: Alice\n    description: A.\n    kind: person\n"
+        )
+        state = load_yaml_scenario(p).state
+        p.unlink(missing_ok=True)
+        await layer.create_session(state)
+
+        runner = SessionRunner("paused-run")
+        runner.status = "paused"  # simulate already-paused before _run returns
+
+        mock_provider = MagicMock(spec=["complete"])
+
+        with patch("roleplay.api.runner._build_registry") as mock_reg:
+            mock_reg.return_value.get.return_value = mock_provider
+            with patch("roleplay.engine.engine.SimulationEngine.run", new=AsyncMock()):
+                await runner._run(state, layer, 1)
+
+        # status must remain "paused", not overwritten to "done"
+        assert runner.status == "paused"
+        await layer.close()
+
+    # ── _run: exception path → status=error + broadcast (lines 334-338) ────
+
+    async def test_run_exception_sets_error_status(self) -> None:
+        """RuntimeError from engine.run sets status=error and records message."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from roleplay.api.runner import SessionRunner
+        from roleplay.persistence.sqlite import SqlitePersistenceLayer
+        from roleplay.scenario_yaml import load_yaml_scenario
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+
+        p = Path(tempfile.mktemp(suffix=".yaml", dir="/tmp"))
+        p.write_text(
+            "session_id: err-run\n"
+            "parties:\n"
+            "  - id: alice\n    name: Alice\n    description: A.\n    kind: person\n"
+        )
+        state = load_yaml_scenario(p).state
+        p.unlink(missing_ok=True)
+        await layer.create_session(state)
+
+        runner = SessionRunner("err-run")
+        runner.status = "running"
+
+        error_events: list[dict] = []
+
+        async def _capture(event: dict) -> None:
+            error_events.append(event)
+
+        runner._broadcast = _capture  # type: ignore[method-assign]
+
+        with patch("roleplay.api.runner._build_registry") as mock_reg:
+            mock_reg.return_value.get.return_value = MagicMock(spec=["complete"])
+            with patch(
+                "roleplay.engine.engine.SimulationEngine.run",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ):
+                await runner._run(state, layer, 1)
+
+        assert runner.status == "error"
+        assert runner.error == "boom"
+        error_types = [e["type"] for e in error_events]
+        assert "error" in error_types
+
+    # ── _run finally: sentinel sent to active subscribers (lines 346-349) ───
+
+    async def test_run_finally_sends_sentinel_to_subscribers(self) -> None:
+        """On completion, None sentinel is put into every subscriber queue."""
+        import asyncio
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from roleplay.api.runner import SessionRunner
+        from roleplay.persistence.sqlite import SqlitePersistenceLayer
+        from roleplay.scenario_yaml import load_yaml_scenario
+
+        db_path = tempfile.mktemp(suffix=".db", dir="/tmp")
+        layer = SqlitePersistenceLayer(db_path)
+        await layer.open()
+
+        p = Path(tempfile.mktemp(suffix=".yaml", dir="/tmp"))
+        p.write_text(
+            "session_id: sentinel-run\n"
+            "parties:\n"
+            "  - id: alice\n    name: Alice\n    description: A.\n    kind: person\n"
+        )
+        state = load_yaml_scenario(p).state
+        p.unlink(missing_ok=True)
+        await layer.create_session(state)
+
+        runner = SessionRunner("sentinel-run")
+        runner.status = "running"
+        q = runner.subscribe()  # ensures the finally loop body executes
+
+        with patch("roleplay.api.runner._build_registry") as mock_reg:
+            mock_reg.return_value.get.return_value = MagicMock(spec=["complete"])
+            with patch("roleplay.engine.engine.SimulationEngine.run", new=AsyncMock()):
+                await runner._run(state, layer, 1)
+
+        # Drain the queue; the last item must be the None sentinel
+        items = []
+        while not q.empty():
+            items.append(q.get_nowait())
+        assert None in items, f"Sentinel not found; got: {items}"
