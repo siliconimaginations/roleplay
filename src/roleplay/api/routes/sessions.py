@@ -43,20 +43,6 @@ def _session_status(session_id: str, runners: dict[str, Any]) -> RunStatusLitera
     return cast("RunStatusLiteral", runner.status)
 
 
-async def _deduplicate_session_id(base_id: str, layer: PersistenceLayer) -> str:
-    """Return base_id if available, else base_id-1, base_id-2, … until a free slot is found."""
-    if not await layer.session_exists(base_id):
-        return base_id
-    for i in range(1, 1000):
-        candidate = f"{base_id}-{i}"
-        if not await layer.session_exists(candidate):
-            return candidate
-    # Extremely unlikely fallback
-    import uuid as _uuid
-
-    return f"{base_id}-{_uuid.uuid4().hex[:8]}"
-
-
 def _parties_from_state(
     state: SimulationState,
 ) -> tuple[list[PartySchema], PartySchema | None]:

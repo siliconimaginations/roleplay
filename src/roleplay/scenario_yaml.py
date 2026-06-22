@@ -235,6 +235,8 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
 
     # ── Config ───────────────────────────────────────────────────────────────
     cfg_raw: dict[str, Any] = data.get("config", {})
+    # The YAML's session_id field becomes the human-readable display_name;
+    # session_id is always a fresh UUID so every load produces a unique session.
     display_name = str(data.get("session_id", "") or "").strip()
     session_id = str(uuid.uuid4())
     provider_name = str(cfg_raw.get("default_provider", "gemini"))

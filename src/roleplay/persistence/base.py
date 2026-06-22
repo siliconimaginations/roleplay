@@ -166,6 +166,11 @@ class PersistenceLayer(Protocol):  # pragma: no cover
     ) -> SimulationState:
         """Deep-copy the session under new_session_id.
 
+        Args:
+            session_id: The source session to fork from.
+            new_session_id: UUID for the new forked session.
+            display_name: Human-readable label for the fork (default: empty string).
+
         Sets parent_session_id and forked_at_episode on the new row.
         """
         ...
