@@ -875,7 +875,6 @@ class TestRemainingRunnerGaps:
 
     async def test_run_finally_sends_sentinel_to_subscribers(self) -> None:
         """On completion, None sentinel is put into every subscriber queue."""
-        import asyncio
         import tempfile
         from pathlib import Path
         from unittest.mock import AsyncMock, MagicMock, patch
