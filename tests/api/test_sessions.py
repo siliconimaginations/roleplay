@@ -34,7 +34,8 @@ class TestCreateSession:
         resp = await client.post("/sessions", content=MINIMAL_YAML)
         assert resp.status_code == 201
         body = resp.json()
-        assert body["session_id"] == "test-session-001"
+        assert body["display_name"] == "test-session-001"
+        assert body["session_id"] != "test-session-001"  # always a UUID now
         assert body["status"] == "idle"
         assert body["episode_count"] == 0
 
@@ -100,24 +101,25 @@ class TestListSessions:
         assert resp.status_code == 200
         body = resp.json()
         assert len(body) == 1
-        assert body[0]["session_id"] == "test-session-001"
+        assert body[0]["display_name"] == "test-session-001"
 
     async def test_list_multiple_sessions(self, client: AsyncClient) -> None:
         await client.post("/sessions", content=MINIMAL_YAML)
         await client.post("/sessions", content=_YAML2)
         resp = await client.get("/sessions")
-        ids = [s["session_id"] for s in resp.json()]
-        assert "test-session-001" in ids
-        assert "test-session-002" in ids
+        names = [s["display_name"] for s in resp.json()]
+        assert "test-session-001" in names
+        assert "test-session-002" in names
 
 
 class TestGetSession:
     async def test_get_session_returns_detail(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.get("/sessions/test-session-001")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.get(f"/sessions/{sid}")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["session_id"] == "test-session-001"
+        assert body["session_id"] == sid
+        assert body["display_name"] == "test-session-001"
         assert "parties" in body
         assert "config" in body
         party_ids = {p["id"] for p in body["parties"]}
@@ -129,27 +131,27 @@ class TestGetSession:
         assert resp.status_code == 404
 
     async def test_get_session_includes_environment(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.get("/sessions/test-session-001")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.get(f"/sessions/{sid}")
         body = resp.json()
         assert body["environment"] is not None
         assert body["environment"]["kind"] == "environment"
 
     async def test_get_session_status_is_idle(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.get("/sessions/test-session-001")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.get(f"/sessions/{sid}")
         assert resp.json()["status"] == "idle"
 
 
 class TestDeleteSession:
     async def test_delete_session_returns_204(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.delete("/sessions/test-session-001")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.delete(f"/sessions/{sid}")
         assert resp.status_code == 204
 
     async def test_delete_removes_from_list(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        await client.delete("/sessions/test-session-001")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        await client.delete(f"/sessions/{sid}")
         resp = await client.get("/sessions")
         assert resp.json() == []
 
@@ -160,16 +162,16 @@ class TestDeleteSession:
 
 class TestForkSession:
     async def test_fork_returns_201(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.post("/sessions/test-session-001/fork")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.post(f"/sessions/{sid}/fork")
         assert resp.status_code == 201
         body = resp.json()
-        assert body["session_id"] != "test-session-001"
+        assert body["session_id"] != sid  # new UUID
         assert body["status"] == "idle"
 
     async def test_fork_creates_new_session_in_list(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        fork_resp = await client.post("/sessions/test-session-001/fork")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        fork_resp = await client.post(f"/sessions/{sid}/fork")
         new_id = fork_resp.json()["session_id"]
         resp = await client.get("/sessions")
         ids = [s["session_id"] for s in resp.json()]
@@ -318,14 +320,14 @@ parties:
 class TestExportSession:
     @pytest.mark.asyncio
     async def test_export_returns_200(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        r = await client.get("/sessions/test-session-001/export")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        r = await client.get(f"/sessions/{sid}/export")
         assert r.status_code == 200
 
     @pytest.mark.asyncio
     async def test_export_top_level_keys(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert body["export_version"] == "1"
         assert "exported_at" in body
         assert "session" in body
@@ -336,17 +338,17 @@ class TestExportSession:
 
     @pytest.mark.asyncio
     async def test_export_session_metadata(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         sess = body["session"]
-        assert sess["id"] == "test-session-001"
+        assert sess["id"] == sid  # UUID
         assert "status" in sess
         assert sess["episode_count"] == 0  # no episodes run
 
     @pytest.mark.asyncio
     async def test_export_includes_parties_with_names(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         party_ids = {p["id"] for p in body["parties"]}
         assert "alice" in party_ids
         assert "bob" in party_ids
@@ -355,14 +357,14 @@ class TestExportSession:
 
     @pytest.mark.asyncio
     async def test_export_environment_separate(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert body["environment"]["id"] == "room"
 
     @pytest.mark.asyncio
     async def test_export_episodes_empty_before_run(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert body["episodes"] == []
 
     @pytest.mark.asyncio
@@ -372,8 +374,8 @@ class TestExportSession:
 
     @pytest.mark.asyncio
     async def test_export_config_fields(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/export")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         cfg = body["config"]
         assert cfg["default_provider"] == "mock"
         assert "context_window_episodes" in cfg
@@ -384,27 +386,29 @@ class TestExportSession:
 class TestGetSessionYaml:
     @pytest.mark.asyncio
     async def test_yaml_returns_200(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        r = await client.get("/sessions/test-session-001/yaml")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        r = await client.get(f"/sessions/{sid}/yaml")
         assert r.status_code == 200
 
     @pytest.mark.asyncio
     async def test_yaml_returns_yaml_key(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         assert "yaml" in body
         assert isinstance(body["yaml"], str)
 
     @pytest.mark.asyncio
     async def test_yaml_contains_session_id(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/yaml")).json()
-        assert "test-session-001" in body["yaml"]
+        r = await client.post("/sessions", content=MINIMAL_YAML)
+        sid = r.json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
+        # session_id in YAML is the UUID; display_name holds the human name
+        assert sid in body["yaml"]
 
     @pytest.mark.asyncio
     async def test_yaml_contains_parties(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        body = (await client.get("/sessions/test-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         assert "alice" in body["yaml"]
         assert "bob" in body["yaml"]
 
@@ -449,21 +453,21 @@ class TestGetSessionYamlRich:
 
     @pytest.mark.asyncio
     async def test_yaml_includes_party_persona(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         assert "A seasoned negotiator" in body["yaml"]
 
     @pytest.mark.asyncio
     async def test_yaml_includes_environment_persona(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         assert "A formal meeting space" in body["yaml"]
 
     @pytest.mark.asyncio
     async def test_yaml_includes_named_environments(self, client: AsyncClient) -> None:
         # Named environments are now persisted via migration 003. Closes #90.
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         assert "hallway" in body["yaml"]
         assert "A long corridor" in body["yaml"]
 
@@ -473,23 +477,23 @@ class TestExportSessionRich:
 
     @pytest.mark.asyncio
     async def test_export_includes_party_persona(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/export")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         alice = next(p for p in body["parties"] if p["id"] == "alice")
         assert alice["persona"]["description"] == "A seasoned negotiator."
         assert alice["persona"]["goals"] == ["Reach a fair deal"]
 
     @pytest.mark.asyncio
     async def test_export_includes_environment_persona(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/export")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert body["environment"]["persona"]["description"] == "A formal meeting space."
 
     @pytest.mark.asyncio
     async def test_export_includes_named_environments(self, client: AsyncClient) -> None:
         # Named environments are now persisted via migration 003. Closes #90.
-        await client.post("/sessions", content=_RICH_YAML)
-        body = (await client.get("/sessions/rich-session-001/export")).json()
+        sid = (await client.post("/sessions", content=_RICH_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert "environments" in body
         env_ids = [e["id"] for e in body["environments"]]
         assert "hallway" in env_ids
@@ -587,22 +591,22 @@ class TestYamlAndExportInitialStateBranch:
 
     @pytest.mark.asyncio
     async def test_yaml_party_initial_state_included(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_STATE_YAML)
-        body = (await client.get("/sessions/state-session-001/yaml")).json()
+        sid = (await client.post("/sessions", content=_STATE_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/yaml")).json()
         # Party with state → initial_state key appears in YAML
         assert "mood" in body["yaml"] or "energy" in body["yaml"]
 
     @pytest.mark.asyncio
     async def test_export_party_initial_state_included(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_STATE_YAML)
-        body = (await client.get("/sessions/state-session-001/export")).json()
+        sid = (await client.post("/sessions", content=_STATE_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         alice = next(p for p in body["parties"] if p["id"] == "alice")
         assert "initial_state" in alice
 
     @pytest.mark.asyncio
     async def test_export_environment_initial_state_included(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_STATE_YAML)
-        body = (await client.get("/sessions/state-session-001/export")).json()
+        sid = (await client.post("/sessions", content=_STATE_YAML)).json()["session_id"]
+        body = (await client.get(f"/sessions/{sid}/export")).json()
         assert "initial_state" in body["environment"]
 
 
@@ -682,25 +686,25 @@ class TestGetSessionHistory:
 
 
 class TestSessionIdDedup:
-    """Create → create again with same session_id → should get a suffixed ID."""
+    """Each session gets a unique UUID; the same YAML can be submitted multiple times."""
 
-    async def test_duplicate_session_id_gets_suffix(self, client: AsyncClient) -> None:
+    async def test_same_yaml_creates_unique_session_ids(self, client: AsyncClient) -> None:
         r1 = await client.post("/sessions", content=MINIMAL_YAML)
-        assert r1.status_code == 201
-        assert r1.json()["session_id"] == "test-session-001"
-
-        # Post again with same YAML (same session_id in config)
         r2 = await client.post("/sessions", content=MINIMAL_YAML)
+        assert r1.status_code == 201
         assert r2.status_code == 201
-        new_id = r2.json()["session_id"]
-        assert new_id == "test-session-001-1"
+        # UUIDs are always unique
+        assert r1.json()["session_id"] != r2.json()["session_id"]
+        # Both share the same display_name from the YAML
+        assert r1.json()["display_name"] == "test-session-001"
+        assert r2.json()["display_name"] == "test-session-001"
 
-    async def test_triple_duplicate_gets_incrementing_suffix(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
+    async def test_triple_submit_all_unique_ids(self, client: AsyncClient) -> None:
+        r1 = await client.post("/sessions", content=MINIMAL_YAML)
         r2 = await client.post("/sessions", content=MINIMAL_YAML)
         r3 = await client.post("/sessions", content=MINIMAL_YAML)
-        assert r2.json()["session_id"] == "test-session-001-1"
-        assert r3.json()["session_id"] == "test-session-001-2"
+        ids = {r1.json()["session_id"], r2.json()["session_id"], r3.json()["session_id"]}
+        assert len(ids) == 3  # all unique UUIDs
 
 
 # ---------------------------------------------------------------------------
@@ -709,41 +713,36 @@ class TestSessionIdDedup:
 
 
 class TestNamedFork:
-    """Fork with a custom session_id."""
+    """Fork with an optional display_name."""
 
-    async def test_fork_with_name(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
+    async def test_fork_with_display_name(self, client: AsyncClient) -> None:
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
         resp = await client.post(
-            "/sessions/test-session-001/fork",
-            json={"session_id": "my-named-fork"},
+            f"/sessions/{sid}/fork",
+            json={"display_name": "my-named-fork"},
         )
         assert resp.status_code == 201
         body = resp.json()
-        assert body["session_id"] == "my-named-fork"
+        assert body["display_name"] == "my-named-fork"
+        assert body["session_id"] != sid  # new UUID
         assert body["origin"] == "fork"
-        assert body["parent_session_id"] == "test-session-001"
+        assert body["parent_session_id"] == sid
 
-    async def test_fork_name_deduped_if_taken(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        r1 = await client.post(
-            "/sessions/test-session-001/fork",
-            json={"session_id": "fork-name"},
-        )
-        assert r1.json()["session_id"] == "fork-name"
-        # Fork again with the same name
-        r2 = await client.post(
-            "/sessions/test-session-001/fork",
-            json={"session_id": "fork-name"},
-        )
-        assert r2.json()["session_id"] == "fork-name-1"
+    async def test_fork_display_names_can_repeat(self, client: AsyncClient) -> None:
+        """Display names are not unique — two forks can have the same name."""
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        r1 = await client.post(f"/sessions/{sid}/fork", json={"display_name": "fork-name"})
+        r2 = await client.post(f"/sessions/{sid}/fork", json={"display_name": "fork-name"})
+        assert r1.json()["display_name"] == "fork-name"
+        assert r2.json()["display_name"] == "fork-name"
+        assert r1.json()["session_id"] != r2.json()["session_id"]  # unique UUIDs
 
     async def test_fork_without_body_still_works(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=MINIMAL_YAML)
-        resp = await client.post("/sessions/test-session-001/fork")
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
+        resp = await client.post(f"/sessions/{sid}/fork")
         assert resp.status_code == 201
-        # Should get a UUID (auto-generated)
         body = resp.json()
-        assert body["session_id"] != "test-session-001"
+        assert body["session_id"] != sid
         assert body["origin"] == "fork"
 
 
@@ -771,71 +770,60 @@ class TestDeriveSession:
     """POST /sessions/{id}/derive"""
 
     async def test_derive_returns_201(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
-        resp = await client.post(
-            "/sessions/derive-source/derive",
-            json={},
-        )
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
+        resp = await client.post(f"/sessions/{sid}/derive", json={})
         assert resp.status_code == 201
         body = resp.json()
         assert body["origin"] == "derive"
-        assert body["parent_session_id"] == "derive-source"
+        assert body["parent_session_id"] == sid
         assert body["episode_count"] == 0
         assert body["status"] == "idle"
 
-    async def test_derive_with_custom_name(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
+    async def test_derive_with_display_name(self, client: AsyncClient) -> None:
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
         resp = await client.post(
-            "/sessions/derive-source/derive",
-            json={"session_id": "my-ablation"},
+            f"/sessions/{sid}/derive",
+            json={"display_name": "my-ablation"},
         )
         assert resp.status_code == 201
-        assert resp.json()["session_id"] == "my-ablation"
+        body = resp.json()
+        assert body["display_name"] == "my-ablation"
+        assert body["session_id"] != sid  # new UUID
 
-    async def test_derive_custom_name_deduped(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
-        r1 = await client.post(
-            "/sessions/derive-source/derive",
-            json={"session_id": "ablation"},
-        )
-        assert r1.json()["session_id"] == "ablation"
-        r2 = await client.post(
-            "/sessions/derive-source/derive",
-            json={"session_id": "ablation"},
-        )
-        assert r2.json()["session_id"] == "ablation-1"
+    async def test_derive_display_names_can_repeat(self, client: AsyncClient) -> None:
+        """Display names are not unique."""
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
+        r1 = await client.post(f"/sessions/{sid}/derive", json={"display_name": "ablation"})
+        r2 = await client.post(f"/sessions/{sid}/derive", json={"display_name": "ablation"})
+        assert r1.json()["display_name"] == "ablation"
+        assert r2.json()["display_name"] == "ablation"
+        assert r1.json()["session_id"] != r2.json()["session_id"]
 
     async def test_derive_nonexistent_returns_404(self, client: AsyncClient) -> None:
         resp = await client.post("/sessions/ghost/derive", json={})
         assert resp.status_code == 404
 
     async def test_derive_with_yaml_override(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
-        # Supply a full YAML override
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
         override = _DERIVE_YAML.replace("derive-source", "derived-override")
-        resp = await client.post(
-            "/sessions/derive-source/derive",
-            json={"yaml": override},
-        )
+        resp = await client.post(f"/sessions/{sid}/derive", json={"yaml": override})
         assert resp.status_code == 201
-        body = resp.json()
-        assert body["origin"] == "derive"
+        assert resp.json()["origin"] == "derive"
 
     async def test_derive_with_invalid_yaml_returns_422(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
         resp = await client.post(
-            "/sessions/derive-source/derive",
+            f"/sessions/{sid}/derive",
             json={"yaml": "not: valid: yaml: [[["},
         )
         assert resp.status_code == 422
 
     async def test_derive_creates_new_session_in_list(self, client: AsyncClient) -> None:
-        await client.post("/sessions", content=_DERIVE_YAML)
-        derive_resp = await client.post("/sessions/derive-source/derive", json={})
+        sid = (await client.post("/sessions", content=_DERIVE_YAML)).json()["session_id"]
+        derive_resp = await client.post(f"/sessions/{sid}/derive", json={})
         new_id = derive_resp.json()["session_id"]
         list_resp = await client.get("/sessions")
         ids = [s["session_id"] for s in list_resp.json()]
         assert new_id in ids
-        # Origin should be visible in list
         entry = next(s for s in list_resp.json() if s["session_id"] == new_id)
         assert entry["origin"] == "derive"

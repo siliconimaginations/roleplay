@@ -111,8 +111,8 @@ class TestWebSocket:
         ws_ready = threading.Event()
         done = threading.Event()
 
-        def ws_thread(tc: TestClient) -> None:
-            with tc.websocket_connect("/sessions/test-session-001/stream") as ws:
+        def ws_thread(tc: TestClient, sid: str) -> None:
+            with tc.websocket_connect(f"/sessions/{sid}/stream") as ws:
                 connected = json.loads(ws.receive_text())
                 assert connected["type"] == "connected"
                 ws_ready.set()
@@ -131,11 +131,12 @@ class TestWebSocket:
             with TestClient(app, raise_server_exceptions=False) as tc:
                 r = tc.post("/sessions", content=MINIMAL_YAML)
                 assert r.status_code == 201
+                sid = r.json()["session_id"]
 
-                t = threading.Thread(target=ws_thread, args=(tc,), daemon=True)
+                t = threading.Thread(target=ws_thread, args=(tc, sid), daemon=True)
                 t.start()
                 ws_ready.wait(timeout=5)
-                tc.post("/sessions/test-session-001/run?episodes=1")
+                tc.post(f"/sessions/{sid}/run?episodes=1")
                 done.wait(timeout=15)
                 t.join(timeout=2)
 
