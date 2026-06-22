@@ -141,20 +141,20 @@ class TestCoverageGaps:
         from roleplay.api.runner import SessionRunner
 
         app, client = app_client  # type: ignore[misc]
-        await client.post("/sessions", content=MINIMAL_YAML)
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
 
-        runner = SessionRunner("test-session-001")
+        runner = SessionRunner(sid)
         runner.status = "running"
-        app.state.runners["test-session-001"] = runner
+        app.state.runners[sid] = runner
 
-        r = await client.post("/sessions/test-session-001/run?episodes=1")
+        r = await client.post(f"/sessions/{sid}/run?episodes=1")
         assert r.status_code == 409
 
     @pytest.mark.asyncio
     async def test_pause_nonrunning_session_returns_409(self, client: object) -> None:
         """POST /pause on idle session → 409."""
-        await client.post("/sessions", content=MINIMAL_YAML)  # type: ignore[union-attr]
-        r = await client.post("/sessions/test-session-001/pause")  # type: ignore[union-attr]
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]  # type: ignore[union-attr]
+        r = await client.post(f"/sessions/{sid}/pause")  # type: ignore[union-attr]
         assert r.status_code == 409
         assert "not running" in r.json()["detail"]
 
@@ -164,22 +164,22 @@ class TestCoverageGaps:
         from roleplay.api.runner import SessionRunner
 
         app, client = app_client  # type: ignore[misc]
-        await client.post("/sessions", content=MINIMAL_YAML)
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
 
-        runner = SessionRunner("test-session-001")
+        runner = SessionRunner(sid)
         runner.status = "running"
-        app.state.runners["test-session-001"] = runner
+        app.state.runners[sid] = runner
 
-        r = await client.post("/sessions/test-session-001/pause")
+        r = await client.post(f"/sessions/{sid}/pause")
         assert r.status_code == 200
         assert runner._pause_requested is True
 
     @pytest.mark.asyncio
     async def test_inject_idle_session_accepted(self, client: object) -> None:
         """POST /inject on idle session → 200 (queued for first episode)."""
-        await client.post("/sessions", content=MINIMAL_YAML)  # type: ignore[union-attr]
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]  # type: ignore[union-attr]
         r = await client.post(  # type: ignore[union-attr]
-            "/sessions/test-session-001/inject",
+            f"/sessions/{sid}/inject",
             json={"text": "Something happens."},
         )
         assert r.status_code == 200
@@ -190,14 +190,14 @@ class TestCoverageGaps:
         from roleplay.api.runner import SessionRunner
 
         app, client = app_client  # type: ignore[misc]
-        await client.post("/sessions", content=MINIMAL_YAML)
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
 
-        runner = SessionRunner("test-session-001")
+        runner = SessionRunner(sid)
         runner.status = "running"
-        app.state.runners["test-session-001"] = runner
+        app.state.runners[sid] = runner
 
         r = await client.post(
-            "/sessions/test-session-001/inject",
+            f"/sessions/{sid}/inject",
             json={"text": "A storm approaches."},
         )
         assert r.status_code == 200
@@ -208,13 +208,13 @@ class TestCoverageGaps:
         from roleplay.api.runner import SessionRunner
 
         app, client = app_client  # type: ignore[misc]
-        await client.post("/sessions", content=MINIMAL_YAML)
+        sid = (await client.post("/sessions", content=MINIMAL_YAML)).json()["session_id"]
 
-        runner = SessionRunner("test-session-001")
+        runner = SessionRunner(sid)
         runner.status = "running"
-        app.state.runners["test-session-001"] = runner
+        app.state.runners[sid] = runner
 
-        r = await client.delete("/sessions/test-session-001")
+        r = await client.delete(f"/sessions/{sid}")
         assert r.status_code == 409
 
     @pytest.mark.asyncio
@@ -223,13 +223,14 @@ class TestCoverageGaps:
         from roleplay.api.runner import SessionRunner
 
         app, client = app_client  # type: ignore[misc]
-        await client.post("/sessions", content=MINIMAL_YAML)
+        cr = await client.post("/sessions", content=MINIMAL_YAML)
+        sid = cr.json()["session_id"]
 
-        runner = SessionRunner("test-session-001")
+        runner = SessionRunner(sid)
         runner.status = "done"
-        app.state.runners["test-session-001"] = runner
+        app.state.runners[sid] = runner
 
-        r = await client.get("/sessions/test-session-001")
+        r = await client.get(f"/sessions/{sid}")
         assert r.status_code == 200
         assert r.json()["status"] == "done"
 

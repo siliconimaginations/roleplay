@@ -235,12 +235,16 @@ def load_yaml_scenario(path: Path) -> ScenarioResult:
 
     # ── Config ───────────────────────────────────────────────────────────────
     cfg_raw: dict[str, Any] = data.get("config", {})
-    session_id = str(data.get("session_id", "") or uuid.uuid4())
+    # The YAML's session_id field becomes the human-readable display_name;
+    # session_id is always a fresh UUID so every load produces a unique session.
+    display_name = str(data.get("session_id", "") or "").strip()
+    session_id = str(uuid.uuid4())
     provider_name = str(cfg_raw.get("default_provider", "gemini"))
     max_episodes: int | None = int(cfg_raw["max_episodes"]) if "max_episodes" in cfg_raw else None
 
     config = SimulationConfig(
         session_id=session_id,
+        display_name=display_name,
         context_window_episodes=int(cfg_raw.get("context_window_episodes", 10)),
         memory_max_entries=int(cfg_raw.get("memory_max_entries", 20)),
         memory_char_budget=int(cfg_raw.get("memory_char_budget", 4000)),

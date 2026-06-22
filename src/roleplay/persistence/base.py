@@ -48,6 +48,7 @@ class SessionSummary:
     """Lightweight summary returned by list_sessions()."""
 
     session_id: str
+    display_name: str
     parent_session_id: str | None
     forked_at_episode: int | None
     episode_count: int
@@ -160,8 +161,15 @@ class PersistenceLayer(Protocol):  # pragma: no cover
         """Atomically persist all current state. Returns session_id."""
         ...
 
-    async def fork(self, session_id: str, new_session_id: str) -> SimulationState:
+    async def fork(
+        self, session_id: str, new_session_id: str, display_name: str = ""
+    ) -> SimulationState:
         """Deep-copy the session under new_session_id.
+
+        Args:
+            session_id: The source session to fork from.
+            new_session_id: UUID for the new forked session.
+            display_name: Human-readable label for the fork (default: empty string).
 
         Sets parent_session_id and forked_at_episode on the new row.
         """

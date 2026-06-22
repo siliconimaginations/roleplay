@@ -21,6 +21,7 @@ class PartySchema(BaseModel):
 
 class SessionSummary(BaseModel):
     session_id: str
+    display_name: str = ""
     created_at: datetime
     episode_count: int
     status: Literal["idle", "running", "paused", "done", "error"]
@@ -30,6 +31,7 @@ class SessionSummary(BaseModel):
 
 class SessionDetail(BaseModel):
     session_id: str
+    display_name: str = ""
     created_at: datetime
     episode_count: int
     status: Literal["idle", "running", "paused", "done", "error"]
@@ -46,18 +48,18 @@ class SessionDetail(BaseModel):
 class ForkRequest(BaseModel):
     """Optional body for POST /sessions/{id}/fork."""
 
-    session_id: str | None = Field(
+    display_name: str | None = Field(
         default=None,
-        description="Custom session ID for the fork. Auto-deduped if already taken.",
+        description="Display name for the fork.",
     )
 
 
 class DeriveRequest(BaseModel):
     """Body for POST /sessions/{id}/derive."""
 
-    session_id: str | None = Field(
+    display_name: str | None = Field(
         default=None,
-        description="Custom session ID for the derived session. Auto-deduped if already taken.",
+        description="Display name for the derived session.",
     )
     yaml: str | None = Field(
         default=None,

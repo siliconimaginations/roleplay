@@ -11,7 +11,7 @@ interface Props {
 export function DeriveModal({ sourceId, onClose, onDerived }: Props) {
   const [yaml, setYaml] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [newId, setNewId] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -26,7 +26,7 @@ export function DeriveModal({ sourceId, onClose, onDerived }: Props) {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await deriveSession(sourceId, newId.trim() || undefined, yaml);
+      const result = await deriveSession(sourceId, displayName.trim() || undefined, yaml);
       onDerived(result.session_id);
     } catch (e) {
       if (e instanceof ApiError) {
@@ -67,14 +67,14 @@ export function DeriveModal({ sourceId, onClose, onDerived }: Props) {
           {/* New session ID */}
           <div className="px-6 pt-6 mb-5">
             <label className="block text-xs font-medium text-gray-400 mb-1">
-              New session ID{" "}
-              <span className="text-gray-600 font-normal">(optional — auto-generated if blank)</span>
+              Display name{" "}
+              <span className="text-gray-600 font-normal">(optional)</span>
             </label>
             <input
               type="text"
-              value={newId}
-              onChange={(e) => setNewId(e.target.value)}
-              placeholder={`${sourceId}-v2`}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="e.g. q3-negotiation-aggressive"
               className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500"
             />
           </div>

@@ -44,6 +44,7 @@ class SimulationConfig:
     passive_observation_parties: list[str] = field(default_factory=list)
     prompt_char_budget: int = 20_000
     goal: str = ""  # Optional end condition; checked after every episode via LLM.
+    display_name: str = ""  # Human-readable label; session_id is always a UUID.
 
 
 @dataclass

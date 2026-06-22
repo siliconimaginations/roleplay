@@ -423,6 +423,7 @@ class TestListCommand:
         dt = datetime(2025, 1, 1, tzinfo=UTC)
         summary = SessionSummary(
             session_id="s1",
+            display_name="",
             parent_session_id=None,
             forked_at_episode=None,
             episode_count=2,
@@ -450,6 +451,7 @@ class TestListCommand:
         dt = datetime(2025, 6, 1, tzinfo=UTC)
         summary = SessionSummary(
             session_id="table-session",
+            display_name="table-session",
             parent_session_id=None,
             forked_at_episode=None,
             episode_count=5,

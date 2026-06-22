@@ -158,12 +158,13 @@ class SqlitePersistenceLayer:
         await db.execute(
             """
             INSERT OR IGNORE INTO sessions
-              (session_id, parent_session_id, forked_at_episode,
+              (session_id, display_name, parent_session_id, forked_at_episode,
                config_json, started_at, last_saved_at, status, origin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 state.config.session_id,
+                state.config.display_name,
                 parent_id,
                 None,
                 encode_config(state.config),
@@ -402,7 +403,7 @@ class SqlitePersistenceLayer:
         rows = await (
             await db.execute(
                 """
-                SELECT s.session_id, s.parent_session_id, s.forked_at_episode,
+                SELECT s.session_id, s.display_name, s.parent_session_id, s.forked_at_episode,
                        s.status, s.started_at, s.last_saved_at, s.origin,
                        COUNT(DISTINCT e.episode_id) AS episode_count,
                        COUNT(DISTINCT p.party_id) AS party_count
@@ -418,6 +419,7 @@ class SqlitePersistenceLayer:
         return [
             SessionSummary(
                 session_id=r["session_id"],
+                display_name=r["display_name"],
                 parent_session_id=r["parent_session_id"],
                 forked_at_episode=r["forked_at_episode"],
                 episode_count=r["episode_count"],
@@ -523,7 +525,8 @@ class SqlitePersistenceLayer:
                 await db.execute(
                     """
                     SELECT party_id, turn_index, output, state_proposals_json,
-                           tool_calls_json, prompt_tokens, completion_tokens, timestamp
+                           tool_calls_json, prompt_tokens, completion_tokens,
+                           model_used, timestamp
                     FROM turns
                     WHERE episode_id = ?
                     ORDER BY turn_index
@@ -686,7 +689,9 @@ class SqlitePersistenceLayer:
         await self.save_state(state)
         return state.config.session_id
 
-    async def fork(self, session_id: str, new_session_id: str) -> SimulationState:
+    async def fork(
+        self, session_id: str, new_session_id: str, display_name: str = ""
+    ) -> SimulationState:
         """Deep-copy the session under new_session_id."""
         db = self._db()
 
@@ -718,16 +723,19 @@ class SqlitePersistenceLayer:
             await db.execute(
                 """
                 INSERT INTO sessions
-                  (session_id, parent_session_id, forked_at_episode,
+                  (session_id, display_name, parent_session_id, forked_at_episode,
                    config_json, started_at, last_saved_at, status, origin)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_session_id,
+                    display_name,
                     session_id,
                     forked_at,
                     # Patch config_json to use new session_id
-                    _patch_session_id_in_config(src_row["config_json"], new_session_id),
+                    _patch_session_id_in_config(
+                        src_row["config_json"], new_session_id, display_name
+                    ),
                     src_row["started_at"],
                     now,
                     src_row["status"],
@@ -949,8 +957,11 @@ class SqlitePersistenceLayer:
 # ---------------------------------------------------------------------------
 
 
-def _patch_session_id_in_config(config_json: str, new_session_id: str) -> str:
-    """Replace session_id in a serialised SimulationConfig JSON blob."""
+def _patch_session_id_in_config(
+    config_json: str, new_session_id: str, display_name: str = ""
+) -> str:
+    """Replace session_id (and display_name) in a serialised SimulationConfig JSON blob."""
     d: dict[str, object] = json.loads(config_json)
     d["session_id"] = new_session_id
+    d["display_name"] = display_name
     return json.dumps(d)

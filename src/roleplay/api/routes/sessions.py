@@ -43,20 +43,6 @@ def _session_status(session_id: str, runners: dict[str, Any]) -> RunStatusLitera
     return cast("RunStatusLiteral", runner.status)
 
 
-async def _deduplicate_session_id(base_id: str, layer: PersistenceLayer) -> str:
-    """Return base_id if available, else base_id-1, base_id-2, … until a free slot is found."""
-    if not await layer.session_exists(base_id):
-        return base_id
-    for i in range(1, 1000):
-        candidate = f"{base_id}-{i}"
-        if not await layer.session_exists(candidate):
-            return candidate
-    # Extremely unlikely fallback
-    import uuid as _uuid
-
-    return f"{base_id}-{_uuid.uuid4().hex[:8]}"
-
-
 def _parties_from_state(
     state: SimulationState,
 ) -> tuple[list[PartySchema], PartySchema | None]:
@@ -137,8 +123,8 @@ async def create_session(
     state = result.state
     layer = _layer(request)
 
-    # Deduplicate the session_id if a session with that ID already exists.
-    state.config.session_id = await _deduplicate_session_id(state.config.session_id, layer)
+    # session_id is always a UUID; the YAML's session_id field becomes display_name.
+    state.config.session_id = str(uuid.uuid4())
 
     try:
         await layer.create_session(state)
@@ -150,6 +136,7 @@ async def create_session(
 
     return SessionSummary(
         session_id=state.config.session_id,
+        display_name=state.config.display_name,
         created_at=datetime.now(tz=UTC),
         episode_count=0,
         status="idle",
@@ -172,6 +159,7 @@ async def list_sessions(request: Request, _auth: Auth) -> list[SessionSummary]:
     return [
         SessionSummary(
             session_id=s.session_id,
+            display_name=s.display_name,
             created_at=s.started_at,
             episode_count=s.episode_count,
             status=_session_status(s.session_id, runners),
@@ -208,6 +196,7 @@ async def get_session(
 
     return SessionDetail(
         session_id=session_id,
+        display_name=cfg.display_name,
         created_at=datetime.now(tz=UTC),
         episode_count=len(state.history.completed_episodes()),
         status=_session_status(session_id, runners),
@@ -276,20 +265,18 @@ async def fork_session(
     if body is None:
         body = ForkRequest()
     layer = _layer(request)
-    # If caller sends a JSON body with session_id, honour it (with dedup).
-    # FastAPI will parse it; if no body was sent ForkRequest() defaults are used.
-    if body.session_id:
-        new_id = await _deduplicate_session_id(body.session_id, layer)
-    else:
-        new_id = str(uuid.uuid4())
+    # session_id is always a UUID; caller may supply a display_name.
+    new_id = str(uuid.uuid4())
+    new_display_name = body.display_name or ""
 
     try:
-        await layer.fork(session_id, new_id)
+        await layer.fork(session_id, new_id, new_display_name)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
 
     return SessionSummary(
         session_id=new_id,
+        display_name=new_display_name,
         created_at=datetime.now(tz=UTC),
         episode_count=0,
         status="idle",
@@ -335,9 +322,9 @@ async def derive_session(
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found") from None
 
-    # Determine the new session_id (with dedup).
-    base_id = body.session_id or str(uuid.uuid4())
-    new_id = await _deduplicate_session_id(base_id, layer)
+    # session_id is always a UUID; caller may supply a display_name.
+    new_id = str(uuid.uuid4())
+    new_display_name = body.display_name or ""
 
     if body.yaml:
         # Parse the caller-supplied YAML override.
@@ -365,8 +352,9 @@ async def derive_session(
         # Use the source session's initial config as-is.
         new_state = source_state
 
-    # Patch the session_id in the new state.
+    # Patch the session_id and display_name in the new state.
     new_state.config.session_id = new_id
+    new_state.config.display_name = new_display_name
 
     try:
         await layer.create_session(new_state, parent_id=session_id, origin="derive")
@@ -378,6 +366,7 @@ async def derive_session(
 
     return SessionSummary(
         session_id=new_id,
+        display_name=new_display_name,
         created_at=datetime.now(tz=UTC),
         episode_count=0,
         status="idle",
@@ -481,6 +470,7 @@ async def get_session_history(
                         "episode": ep.index,
                         "party_id": t.party_id,
                         "output": t.output,
+                        "model_used": t.model_used,
                         "state_update_proposals": t.state_update_proposals,
                     }
                     for t in ep.turns
@@ -715,6 +705,7 @@ async def export_session(
                 {
                     "party_id": t.party_id,
                     "output": t.output,
+                    "model_used": t.model_used,
                     "state_update_proposals": t.state_update_proposals,
                 }
                 for t in ep.turns
